@@ -1,9 +1,11 @@
 import torch
+import lovely_tensors
 import torch.nn as nn
 from PIL import Image
 from transformers import CLIPProcessor, CLIPVisionModel, CLIPImageProcessor
 from transformers import logging
 
+lovely_tensors.monkey_patch()
 logging.set_verbosity_warning()
 logging.set_verbosity_error()
 
@@ -11,7 +13,7 @@ logging.set_verbosity_error()
 
 
 class ReferenceEncoder(nn.Module):
-    def __init__(self, model_path="openai/clip-vit-base-patch32"):
+    def __init__(self, model_path="checkpoints/clip-vit-base-patch32"):
         super(ReferenceEncoder, self).__init__()
         self.model = CLIPVisionModel.from_pretrained(model_path, local_files_only=True)
         self.processor = CLIPImageProcessor.from_pretrained(
@@ -24,42 +26,24 @@ class ReferenceEncoder(nn.Module):
         for param in self.model.parameters():
             param.requires_grad = False
 
-    def forward(self, pixel_values):
+    def forward(self, input):
+        pixel_values = self.processor.preprocess(input, return_tensors="pt")[
+            "pixel_values"
+        ]
+        print(pixel_values)
         outputs = self.model(pixel_values)
         pooled_output = outputs.pooler_output
         return pooled_output
 
 
-# class ReferenceEncoder(nn.Module):
-#     def __init__(self, model_path="openai/clip-vit-base-patch32"):
-#         super(ReferenceEncoder, self).__init__()
-#         self.model = CLIPVisionModel.from_pretrained(model_path,local_files_only=True)
-#         self.processor = CLIPProcessor.from_pretrained(model_path,local_files_only=True)
-#         self.freeze()
+if __name__ == "__main__":
+    # example
+    image_path = "/home/ubuntu/data/animate-anyone/TikTok_dataset/00001/images/0001.png"
+    image = Image.open(image_path).convert("RGB")
 
-#     def freeze(self):
-#         self.model = self.model.eval()
-#         for param in self.model.parameters():
-#             param.requires_grad = False
+    model = ReferenceEncoder()
+    pooled_output = model(image)
 
-#     def forward(self, image):
-#         inputs = self.processor(images=image, return_tensors="pt")
-
-#         print(inputs['pixel_values'].size())
-
-#         outputs = self.model(**inputs)
-
-#         pooled_output = outputs.pooler_output
-
-#         return pooled_output
-
-# # example
-# model = ReferenceEncoder()
-# image_path = "../../000000039769.jpg"
-# image_path = "/mnt/f/research/HumanVideo/AnimateAnyone-unofficial/DWPose/0001.png"
-# image = Image.open(image_path).convert('RGB')
-# image = [image,image]
-
-# pooled_output = model(image)
-
-# print(f"Pooled Output Size: {pooled_output.size()}") # Pooled Output Size: torch.Size([bs, 768])
+    print(f"Pooled Output Size: {pooled_output.size()}")
+    # tensor[1, 3, 224, 224] n=150528 (0.6Mb) x∈[-1.752, 1.930] μ=0.067 σ=1.109
+    # Pooled Output Size: torch.Size([bs, 768])
