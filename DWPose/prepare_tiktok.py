@@ -48,14 +48,13 @@ def process(dwprocessor, input_image, detect_resolution):
         detected_map = dwprocessor(input_image)
         # detected_map = dwprocessor(resize_image(input_image, detect_resolution))
         # detected_map = HWC3(detected_map)
-
     return detected_map
 
 
 dwprocessor = DWposeDetector()
 
 # your dataset path
-dataset_folder = '../../TikTok_dataset'
+dataset_folder = '/home/ubuntu/data/TikTok_dataset/TikTok_dataset'
 detect_resolution = 768
 all_files = os.listdir(dataset_folder)
 
