@@ -1,3 +1,4 @@
+from torch_snippets import *
 import os
 import math
 import wandb
@@ -8,7 +9,6 @@ import argparse
 import datetime
 import subprocess
 
-from torch_snippets import *
 from pathlib import Path
 from tqdm.auto import tqdm
 from einops import rearrange
@@ -214,8 +214,7 @@ def main(
     clip_model_path: str,
     description: str,
     fusion_blocks: str,
-    poseguider_checkpoint_path: str,
-    referencenet_checkpoint_path: str,
+    referencenet_and_poseguider_checkpoint_path: str,
     train_data: Dict,
     validation_data: Dict,
     cfg_random_null_text: bool = True,
@@ -324,8 +323,7 @@ def main(
         noise_scheduler_kwargs,
         pretrained_model_path,
         clip_model_path,
-        poseguider_checkpoint_path,
-        referencenet_checkpoint_path,
+        referencenet_and_poseguider_checkpoint_path,
         image_finetune,
         fusion_blocks,
         trainable_modules,
@@ -491,37 +489,39 @@ def main(
     # Support mixed-precision training
     scaler = torch.cuda.amp.GradScaler() if mixed_precision_training else None
 
+    def sanity_check():
+        if cfg_random_null_text:
+            batch["text"] = [
+                name if random.random() > cfg_random_null_text_ratio else ""
+                for name in batch["text"]
+            ]
+
+        # Data batch sanity check
+        if epoch == first_epoch and step == 0:
+            pixel_values, texts = batch["pixel_values"].cpu(), batch["text"]
+            if not image_finetune:
+                pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
+                for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
+                    pixel_value = pixel_value[None, ...]
+                    save_videos_grid(
+                        pixel_value,
+                        f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.gif",
+                        rescale=True,
+                    )
+            else:
+                for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
+                    pixel_value = pixel_value / 2.0 + 0.5
+                    torchvision.utils.save_image(
+                        pixel_value,
+                        f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.png",
+                    )
+
     for epoch in range(first_epoch, num_train_epochs):
         train_dataloader.sampler.set_epoch(epoch)
         unet.train()
 
         for step, batch in enumerate(train_dataloader):
-            # if cfg_random_null_text:
-            #     batch["text"] = [
-            #         name if random.random() > cfg_random_null_text_ratio else ""
-            #         for name in batch["text"]
-            #     ]
-
-            # Data batch sanity check
-            # if epoch == first_epoch and step == 0:
-            #     pixel_values, texts = batch["pixel_values"].cpu(), batch["text"]
-            #     if not image_finetune:
-            #         pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
-            #         for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
-            #             pixel_value = pixel_value[None, ...]
-            #             save_videos_grid(
-            #                 pixel_value,
-            #                 f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.gif",
-            #                 rescale=True,
-            #             )
-            #     else:
-            #         for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
-            #             pixel_value = pixel_value / 2.0 + 0.5
-            #             torchvision.utils.save_image(
-            #                 pixel_value,
-            #                 f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.png",
-            #             )
-
+            sanity_check()
             ### >>>> Training >>>> ###
 
             # Convert videos to latent space
