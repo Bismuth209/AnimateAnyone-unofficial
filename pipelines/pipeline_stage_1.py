@@ -686,34 +686,29 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         do_classifier_free_guidance = guidance_scale > 1.0
 
         # Encode input prompt
-        prompt = prompt if isinstance(prompt, list) else [prompt] * batch_size
-        if negative_prompt is not None:
-            negative_prompt = (
-                negative_prompt
-                if isinstance(negative_prompt, list)
-                else [negative_prompt] * batch_size
-            )
-        text_embeddings = self._encode_prompt(
-            prompt,
-            device,
-            num_videos_per_prompt,
-            do_classifier_free_guidance,
-            negative_prompt,
-        )
-        text_embeddings = torch.cat([text_embeddings] * context_batch_size)
+        # prompt = prompt if isinstance(prompt, list) else [prompt] * batch_size
+
+        # print(prompt)
+
+        # if negative_prompt is not None:
+        #     negative_prompt = negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] * batch_size
+        # text_embeddings = self._encode_prompt(
+        #     prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
+        # )
+        # text_embeddings = torch.cat([text_embeddings] * context_batch_size)
 
         reference_control_writer = ReferenceNetAttention(
             referencenet,
-            do_classifier_free_guidance=True,
+            do_classifier_free_guidance=do_classifier_free_guidance,
             mode="write",
             fusion_blocks="full",
             batch_size=context_batch_size,
             is_image=True,
         )
-        # reference_control_writer = ReferenceNetAttention(appearance_encoder, do_classifier_free_guidance=True, mode='write', batch_size=context_batch_size)
+        # reference_control_writer = ReferenceNetAttention(appearance_encoder, do_classifier_free_guidance=do_classifier_free_guidance, mode='write', batch_size=context_batch_size)
         reference_control_reader = ReferenceNetAttention(
             self.unet,
-            do_classifier_free_guidance=True,
+            do_classifier_free_guidance=do_classifier_free_guidance,
             mode="read",
             fusion_blocks="full",
             batch_size=context_batch_size,
@@ -742,6 +737,9 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         self.scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = self.scheduler.timesteps
 
+        # text_embeddings_dtype = torch.float16
+        text_embeddings_dtype = torch.float32
+
         # Prepare latent variables
         if init_latents is not None:
             latents = rearrange(
@@ -755,7 +753,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
                 video_length,
                 height,
                 width,
-                text_embeddings.dtype,
+                text_embeddings_dtype,
                 device,
                 generator,
                 latents,
@@ -794,10 +792,11 @@ class AnimationAnyonePipeline(DiffusionPipeline):
 
         # prepare clip image embedding
         # adapt from https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_video_diffusion/pipeline_stable_video_diffusion.py#L115
+        clip_ref_image = clip_ref_image.to(device=latents.device)
         image_embeddings = (
             clip_image_encoder(clip_ref_image)
             .unsqueeze(1)
-            .to(device=text_embeddings.device, dtype=text_embeddings.dtype)
+            .to(device=latents.device, dtype=latents.dtype)
         )
         bs_embed, seq_len, _ = image_embeddings.shape
         image_embeddings = image_embeddings.repeat(1, num_videos_per_prompt, 1)
@@ -832,13 +831,17 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         )
 
         pose_condition = (
-            torch.from_numpy(pose_condition.copy())
+            torch.from_numpy(pose_condition.copy())[None,]
             .to(device=device, dtype=latents.dtype)
             .permute(0, 3, 1, 2)
             / 255.0
         )
         # latent pose
         pose_condition = pixel_transforms(pose_condition)
+
+        # print("pose_condition.device: ",pose_condition.device)
+        # print("poseguider.device: ",poseguider.device)
+
         latents_pose = poseguider(pose_condition)
         # latents_pose = rearrange(latents_pose, "(b f) c h w -> b c f h w", f=video_length)
         if do_classifier_free_guidance:
@@ -851,6 +854,10 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         for i, t in tqdm(
             enumerate(timesteps), total=len(timesteps), disable=(rank != 0)
         ):
+            print(
+                "### ", i, " : ", latents.size(), latents.min(), latents.max(), " ###"
+            )
+
             referencenet(
                 ref_image_latents.repeat(
                     context_batch_size * (2 if do_classifier_free_guidance else 1),
@@ -889,6 +896,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             )[0]
 
             reference_control_writer.clear()
+            reference_control_reader.clear()
 
             # pass
 
