@@ -34,12 +34,15 @@ def resize_image(input_image, resolution):
     W *= k
     H = int(np.round(H / 64.0)) * 64
     W = int(np.round(W / 64.0)) * 64
-    img = cv2.resize(input_image, (W, H), interpolation=cv2.INTER_LANCZOS4 if k > 1 else cv2.INTER_AREA)
+    img = cv2.resize(
+        input_image,
+        (W, H),
+        interpolation=cv2.INTER_LANCZOS4 if k > 1 else cv2.INTER_AREA,
+    )
     return img
 
 
 def process(dwprocessor, input_image, detect_resolution):
-
     if not isinstance(dwprocessor, DWposeDetector):
         dwprocessor = DWposeDetector()
 
@@ -54,14 +57,14 @@ def process(dwprocessor, input_image, detect_resolution):
 dwprocessor = DWposeDetector()
 
 # your dataset path
-dataset_folder = '/home/ubuntu/data/TikTok_dataset/TikTok_dataset'
+dataset_folder = "/home/ubuntu/data/TikTok_dataset/TikTok_dataset"
 detect_resolution = 768
 all_files = os.listdir(dataset_folder)
 
 for folder in tqdm(all_files):
     folder_path = os.path.join(dataset_folder, folder)
-    image_folder = os.path.join(folder_path, 'images')
-    output_folder = os.path.join(folder_path, 'dwpose')
+    image_folder = os.path.join(folder_path, "images")
+    output_folder = os.path.join(folder_path, "dwpose")
 
     if os.path.exists(output_folder):
         continue
@@ -70,7 +73,7 @@ for folder in tqdm(all_files):
         if not os.path.exists(output_folder):
             os.makedirs(output_folder)
 
-        for image_name in tqdm(os.listdir(image_folder),desc=f"process {folder}"):
+        for image_name in tqdm(os.listdir(image_folder), desc=f"process {folder}"):
             image_path = os.path.join(image_folder, image_name)
             output_path = os.path.join(output_folder, image_name)
 

@@ -1,7 +1,7 @@
 # *************************************************************************
 # This file may have been modified by Bytedance Inc. (“Bytedance Inc.'s Mo-
 # difications”). All Bytedance Inc.'s Modifications are Copyright (2023) B-
-# ytedance Inc..  
+# ytedance Inc..
 # *************************************************************************
 
 # Adapted from https://github.com/s9roll7/animatediff-cli-prompt-travel/tree/main
@@ -30,7 +30,9 @@ def uniform(
         yield list(range(num_frames))
         return
 
-    context_stride = min(context_stride, int(np.ceil(np.log2(num_frames / context_size))) + 1)
+    context_stride = min(
+        context_stride, int(np.ceil(np.log2(num_frames / context_size))) + 1
+    )
 
     for context_step in 1 << np.arange(context_stride):
         pad = int(round(num_frames * ordered_halving(step)))
@@ -39,7 +41,10 @@ def uniform(
             num_frames + pad + (0 if closed_loop else -context_overlap),
             (context_size * context_step - context_overlap),
         ):
-            yield [e % num_frames for e in range(j, j + context_size * context_step, context_step)]
+            yield [
+                e % num_frames
+                for e in range(j, j + context_size * context_step, context_step)
+            ]
 
 
 def get_context_scheduler(name: str) -> Callable:

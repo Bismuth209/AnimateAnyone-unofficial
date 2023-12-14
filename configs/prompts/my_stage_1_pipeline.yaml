@@ -1,0 +1,33 @@
+description: "train stage 1: unet learns tiktok poses"
+image_finetune: true
+
+pretrained_model_path: "checkpoints/stable-diffusion-v1-5"
+clip_model_path: "checkpoints/clip-vit-base-patch32"
+
+noise_scheduler_kwargs:
+  num_train_timesteps: 1000
+  beta_start:          0.00085
+  beta_end:            0.012
+  beta_schedule:       "scaled_linear"
+  steps_offset:        1
+  clip_sample:         false
+
+train_data:
+  csv_path:     "/home/ubuntu/code/AnimateAnyone-unofficial/data/TikTok_info.csv"
+  video_folder: "/home/ubuntu/data/animate-anyone/TikTok_dataset"
+  sample_size:  256
+  sample_stride: 4
+  sample_n_frames: 16
+  clip_model_path: "checkpoints/clip-vit-base-patch32"
+
+validation_data:
+  prompts:
+    - "A girl dancing in her bedroom"
+    - "A girl dancing in the forest"
+    - "A boy dancing in his bedroom"
+    - "A boy dancing in the forest"
+  num_inference_steps: 25
+  guidance_scale: 8.
+
+global_seed: 42
+enable_xformers_memory_efficient_attention: True

@@ -14,6 +14,7 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 from diffusers.configuration_utils import FrozenDict
 from diffusers.models import AutoencoderKL
+
 # from diffusers.pipeline_utils import DiffusionPipeline
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from diffusers.schedulers import (
@@ -31,10 +32,7 @@ from einops import rearrange
 # from magicanimate.models.unet_controlnet import UNet3DConditionModel
 # from magicanimate.models.controlnet import ControlNetModel
 
-from .context import (
-    get_context_scheduler,
-    get_total_steps
-)
+from .context import get_context_scheduler, get_total_steps
 from utils.util import get_tensor_interpolation_method
 
 # from models.unet import UNet3DConditionModel
@@ -74,13 +72,16 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         ],
     ):
         super().__init__()
-        '''
+        """
         referencenet:ReferenceNet,
         poseguider:PoseGuider,
         referenceencoder:ReferenceEncoder,
-        '''
+        """
 
-        if hasattr(scheduler.config, "steps_offset") and scheduler.config.steps_offset != 1:
+        if (
+            hasattr(scheduler.config, "steps_offset")
+            and scheduler.config.steps_offset != 1
+        ):
             deprecation_message = (
                 f"The configuration file of this scheduler: {scheduler} is outdated. `steps_offset`"
                 f" should be set to 1 instead of {scheduler.config.steps_offset}. Please make sure "
@@ -94,7 +95,10 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             new_config["steps_offset"] = 1
             scheduler._internal_dict = FrozenDict(new_config)
 
-        if hasattr(scheduler.config, "clip_sample") and scheduler.config.clip_sample is True:
+        if (
+            hasattr(scheduler.config, "clip_sample")
+            and scheduler.config.clip_sample is True
+        ):
             deprecation_message = (
                 f"The configuration file of this scheduler: {scheduler} has not set the configuration `clip_sample`."
                 " `clip_sample` should be set to False in the configuration file. Please make sure to update the"
@@ -107,10 +111,16 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             new_config["clip_sample"] = False
             scheduler._internal_dict = FrozenDict(new_config)
 
-        is_unet_version_less_0_9_0 = hasattr(unet.config, "_diffusers_version") and version.parse(
+        is_unet_version_less_0_9_0 = hasattr(
+            unet.config, "_diffusers_version"
+        ) and version.parse(
             version.parse(unet.config._diffusers_version).base_version
-        ) < version.parse("0.9.0.dev0")
-        is_unet_sample_size_less_64 = hasattr(unet.config, "sample_size") and unet.config.sample_size < 64
+        ) < version.parse(
+            "0.9.0.dev0"
+        )
+        is_unet_sample_size_less_64 = (
+            hasattr(unet.config, "sample_size") and unet.config.sample_size < 64
+        )
         if is_unet_version_less_0_9_0 and is_unet_sample_size_less_64:
             deprecation_message = (
                 "The configuration file of the unet has set the default `sample_size` to smaller than"
@@ -123,7 +133,9 @@ class AnimationAnyonePipeline(DiffusionPipeline):
                 " checkpoint from the Hugging Face Hub, it would be very nice if you could open a Pull request for"
                 " the `unet/config.json` file"
             )
-            deprecate("sample_size<64", "1.0.0", deprecation_message, standard_warn=False)
+            deprecate(
+                "sample_size<64", "1.0.0", deprecation_message, standard_warn=False
+            )
             new_config = dict(unet.config)
             new_config["sample_size"] = 64
             unet._internal_dict = FrozenDict(new_config)
@@ -159,7 +171,6 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             if cpu_offloaded_model is not None:
                 cpu_offload(cpu_offloaded_model, device)
 
-
     @property
     def _execution_device(self):
         if self.device != torch.device("meta") or not hasattr(self.unet, "_hf_hook"):
@@ -173,7 +184,14 @@ class AnimationAnyonePipeline(DiffusionPipeline):
                 return torch.device(module._hf_hook.execution_device)
         return self.device
 
-    def _encode_prompt(self, prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt):
+    def _encode_prompt(
+        self,
+        prompt,
+        device,
+        num_videos_per_prompt,
+        do_classifier_free_guidance,
+        negative_prompt,
+    ):
         batch_size = len(prompt) if isinstance(prompt, list) else 1
 
         text_inputs = self.tokenizer(
@@ -184,16 +202,25 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             return_tensors="pt",
         )
         text_input_ids = text_inputs.input_ids
-        untruncated_ids = self.tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
+        untruncated_ids = self.tokenizer(
+            prompt, padding="longest", return_tensors="pt"
+        ).input_ids
 
-        if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(text_input_ids, untruncated_ids):
-            removed_text = self.tokenizer.batch_decode(untruncated_ids[:, self.tokenizer.model_max_length - 1 : -1])
+        if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(
+            text_input_ids, untruncated_ids
+        ):
+            removed_text = self.tokenizer.batch_decode(
+                untruncated_ids[:, self.tokenizer.model_max_length - 1 : -1]
+            )
             logger.warning(
                 "The following part of your input was truncated because CLIP can only handle sequences up to"
                 f" {self.tokenizer.model_max_length} tokens: {removed_text}"
             )
 
-        if hasattr(self.text_encoder.config, "use_attention_mask") and self.text_encoder.config.use_attention_mask:
+        if (
+            hasattr(self.text_encoder.config, "use_attention_mask")
+            and self.text_encoder.config.use_attention_mask
+        ):
             attention_mask = text_inputs.attention_mask.to(device)
         else:
             attention_mask = None
@@ -207,7 +234,9 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         # duplicate text embeddings for each generation per prompt, using mps friendly method
         bs_embed, seq_len, _ = text_embeddings.shape
         text_embeddings = text_embeddings.repeat(1, num_videos_per_prompt, 1)
-        text_embeddings = text_embeddings.view(bs_embed * num_videos_per_prompt, seq_len, -1)
+        text_embeddings = text_embeddings.view(
+            bs_embed * num_videos_per_prompt, seq_len, -1
+        )
 
         # get unconditional embeddings for classifier free guidance
         if do_classifier_free_guidance:
@@ -239,7 +268,10 @@ class AnimationAnyonePipeline(DiffusionPipeline):
                 return_tensors="pt",
             )
 
-            if hasattr(self.text_encoder.config, "use_attention_mask") and self.text_encoder.config.use_attention_mask:
+            if (
+                hasattr(self.text_encoder.config, "use_attention_mask")
+                and self.text_encoder.config.use_attention_mask
+            ):
                 attention_mask = uncond_input.attention_mask.to(device)
             else:
                 attention_mask = None
@@ -253,7 +285,9 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             # duplicate unconditional embeddings for each generation per prompt, using mps friendly method
             seq_len = uncond_embeddings.shape[1]
             uncond_embeddings = uncond_embeddings.repeat(1, num_videos_per_prompt, 1)
-            uncond_embeddings = uncond_embeddings.view(batch_size * num_videos_per_prompt, seq_len, -1)
+            uncond_embeddings = uncond_embeddings.view(
+                batch_size * num_videos_per_prompt, seq_len, -1
+            )
 
             # For classifier free guidance, we need to do two forward passes.
             # Here we concatenate the unconditional and text embeddings into a single batch
@@ -279,7 +313,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
     #     # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
     #     video = video.cpu().float().numpy()
     #     return video
-    
+
     def decode_latents(self, latents, rank, decoder_consistency=None):
         # deprecation_message = "The decode_latents method is deprecated and will be removed in 1.0.0. Please use VaeImageProcessor.postprocess(...) instead"
         # deprecate("decode_latents", "1.0.0", deprecation_message, standard_warn=False)
@@ -297,26 +331,35 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         # eta corresponds to η in DDIM paper: https://arxiv.org/abs/2010.02502
         # and should be between [0, 1]
 
-        accepts_eta = "eta" in set(inspect.signature(self.scheduler.step).parameters.keys())
+        accepts_eta = "eta" in set(
+            inspect.signature(self.scheduler.step).parameters.keys()
+        )
         extra_step_kwargs = {}
         if accepts_eta:
             extra_step_kwargs["eta"] = eta
 
         # check if the scheduler accepts generator
-        accepts_generator = "generator" in set(inspect.signature(self.scheduler.step).parameters.keys())
+        accepts_generator = "generator" in set(
+            inspect.signature(self.scheduler.step).parameters.keys()
+        )
         if accepts_generator:
             extra_step_kwargs["generator"] = generator
         return extra_step_kwargs
 
     def check_inputs(self, prompt, height, width, callback_steps):
         if not isinstance(prompt, str) and not isinstance(prompt, list):
-            raise ValueError(f"`prompt` has to be of type `str` or `list` but is {type(prompt)}")
+            raise ValueError(
+                f"`prompt` has to be of type `str` or `list` but is {type(prompt)}"
+            )
 
         if height % 8 != 0 or width % 8 != 0:
-            raise ValueError(f"`height` and `width` have to be divisible by 8 but are {height} and {width}.")
+            raise ValueError(
+                f"`height` and `width` have to be divisible by 8 but are {height} and {width}."
+            )
 
         if (callback_steps is None) or (
-            callback_steps is not None and (not isinstance(callback_steps, int) or callback_steps <= 0)
+            callback_steps is not None
+            and (not isinstance(callback_steps, int) or callback_steps <= 0)
         ):
             raise ValueError(
                 f"`callback_steps` has to be a positive integer but is {callback_steps} of type"
@@ -341,7 +384,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
     #             latents = torch.cat(latents, dim=0).to(device)
     #         else:
     #             latents = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype).to(device)
-                
+
     #         latents = latents.repeat(1, 1, video_length//clip_length, 1, 1)
     #     else:
     #         if latents.shape != shape:
@@ -351,9 +394,26 @@ class AnimationAnyonePipeline(DiffusionPipeline):
     #     # scale the initial noise by the standard deviation required by the scheduler
     #     latents = latents * self.scheduler.init_noise_sigma
     #     return latents
-    
-    def prepare_latents(self, batch_size, num_channels_latents, video_length, height, width, dtype, device, generator, latents=None, clip_length=16):
-        shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
+
+    def prepare_latents(
+        self,
+        batch_size,
+        num_channels_latents,
+        video_length,
+        height,
+        width,
+        dtype,
+        device,
+        generator,
+        latents=None,
+        clip_length=16,
+    ):
+        shape = (
+            batch_size,
+            num_channels_latents,
+            height // self.vae_scale_factor,
+            width // self.vae_scale_factor,
+        )
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
@@ -361,7 +421,9 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             )
 
         if latents is None:
-            latents = torch.randn(shape, generator=generator, device=device, dtype=dtype).to(device)
+            latents = torch.randn(
+                shape, generator=generator, device=device, dtype=dtype
+            ).to(device)
         else:
             latents = latents.to(device)
 
@@ -400,7 +462,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
     #     pred_dir = (1 - alpha_prod_t_next)**0.5 * model_output
     #     x_next = alpha_prod_t_next**0.5 * pred_x0 + pred_dir
     #     return x_next, pred_x0
-    
+
     @torch.no_grad()
     def images2latents(self, images, dtype):
         """
@@ -411,7 +473,10 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         images = rearrange(images, "f h w c -> f c h w").to(device)
         latents = []
         for frame_idx in range(images.shape[0]):
-            latents.append(self.vae.encode(images[frame_idx:frame_idx+1])['latent_dist'].mean * 0.18215)
+            latents.append(
+                self.vae.encode(images[frame_idx : frame_idx + 1])["latent_dist"].mean
+                * 0.18215
+            )
         latents = torch.cat(latents)
         return latents
 
@@ -467,7 +532,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
     #         model_inputs = rearrange(model_inputs, "f c h w -> 1 c f h w")
     #         noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings).sample
     #         noise_pred = rearrange(noise_pred, "b c f h w -> (b f) c h w")
-            
+
     #         # compute the previous noise sample x_t-1 -> x_t
     #         latents, pred_x0 = self.next_step(noise_pred, t, latents)
     #         latents_list.append(latents)
@@ -477,42 +542,52 @@ class AnimationAnyonePipeline(DiffusionPipeline):
     #         # return the intermediate laters during inversion
     #         return latents, latents_list
     #     return latents
-    
-    def interpolate_latents(self, latents: torch.Tensor, interpolation_factor:int, device ):
+
+    def interpolate_latents(
+        self, latents: torch.Tensor, interpolation_factor: int, device
+    ):
         if interpolation_factor < 2:
             return latents
 
         new_latents = torch.zeros(
-                    (latents.shape[0],latents.shape[1],((latents.shape[2]-1) * interpolation_factor)+1, latents.shape[3],latents.shape[4]),
-                    device=latents.device,
-                    dtype=latents.dtype,
-                )
+            (
+                latents.shape[0],
+                latents.shape[1],
+                ((latents.shape[2] - 1) * interpolation_factor) + 1,
+                latents.shape[3],
+                latents.shape[4],
+            ),
+            device=latents.device,
+            dtype=latents.dtype,
+        )
 
         org_video_length = latents.shape[2]
-        rate = [i/interpolation_factor for i in range(interpolation_factor)][1:]
+        rate = [i / interpolation_factor for i in range(interpolation_factor)][1:]
 
         new_index = 0
 
         v0 = None
         v1 = None
 
-        for i0,i1 in zip( range( org_video_length ),range( org_video_length )[1:] ):
-            v0 = latents[:,:,i0,:,:]
-            v1 = latents[:,:,i1,:,:]
+        for i0, i1 in zip(range(org_video_length), range(org_video_length)[1:]):
+            v0 = latents[:, :, i0, :, :]
+            v1 = latents[:, :, i1, :, :]
 
-            new_latents[:,:,new_index,:,:] = v0
+            new_latents[:, :, new_index, :, :] = v0
             new_index += 1
 
             for f in rate:
-                v = get_tensor_interpolation_method()(v0.to(device=device),v1.to(device=device),f)
-                new_latents[:,:,new_index,:,:] = v.to(latents.device)
+                v = get_tensor_interpolation_method()(
+                    v0.to(device=device), v1.to(device=device), f
+                )
+                new_latents[:, :, new_index, :, :] = v.to(latents.device)
                 new_index += 1
 
-        new_latents[:,:,new_index,:,:] = v1
+        new_latents[:, :, new_index, :, :] = v1
         new_index += 1
 
         return new_latents
-    
+
     # def select_controlnet_res_samples(self, controlnet_res_samples_cache_dict, context, do_classifier_free_guidance, b, f):
     #     _down_block_res_samples = []
     #     _mid_block_res_sample = []
@@ -525,7 +600,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
     #             down_block_res_samples[i].append(res)
     #     down_block_res_samples = [torch.cat(res) for res in down_block_res_samples]
     #     mid_block_res_sample = torch.cat(_mid_block_res_sample)
-        
+
     #     # reshape controlnet output to match the unet3d inputs
     #     b = b // 2 if do_classifier_free_guidance else b
     #     _down_block_res_samples = []
@@ -538,9 +613,9 @@ class AnimationAnyonePipeline(DiffusionPipeline):
     #     mid_block_res_sample = rearrange(mid_block_res_sample, '(b f) c h w -> b c f h w', b=b, f=f)
     #     if do_classifier_free_guidance:
     #         mid_block_res_sample = mid_block_res_sample.repeat(2, 1, 1, 1, 1)
-            
+
     #     return down_block_res_samples, mid_block_res_sample
-    
+
     @torch.no_grad()
     def __call__(
         self,
@@ -564,22 +639,20 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         context_frames: int = 16,
         context_stride: int = 1,
         context_overlap: int = 4,
-        context_batch_size: int = 1, 
+        context_batch_size: int = 1,
         context_schedule: str = "uniform",
         init_latents: Optional[torch.FloatTensor] = None,
         num_actual_inference_steps: Optional[int] = None,
-        
-        referencenet = None,
-        poseguider = None,
-        clip_image_processor = None,
-        clip_image_encoder = None,
-        pose_condition = None,
-        
-        # appearance_encoder = None, 
-        reference_control_writer = None,
-        reference_control_reader = None,
+        referencenet=None,
+        poseguider=None,
+        clip_image_processor=None,
+        clip_image_encoder=None,
+        pose_condition=None,
+        # appearance_encoder = None,
+        reference_control_writer=None,
+        reference_control_reader=None,
         source_image: str = None,
-        decoder_consistency = None, 
+        decoder_consistency=None,
         **kwargs,
     ):
         """
@@ -587,7 +660,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         - controlnet_condition          : condition map (e.g., depth, canny, keypoints) for controlnet
         - controlnet_conditioning_scale : conditioning scale for controlnet
         - init_latents                  : initial latents to begin with (used along with invert())
-        - num_actual_inference_steps    : number of actual inference steps (while total steps is num_inference_steps) 
+        - num_actual_inference_steps    : number of actual inference steps (while total steps is num_inference_steps)
         """
         # controlnet = self.controlnet
 
@@ -615,23 +688,47 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         # Encode input prompt
         prompt = prompt if isinstance(prompt, list) else [prompt] * batch_size
         if negative_prompt is not None:
-            negative_prompt = negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] * batch_size 
+            negative_prompt = (
+                negative_prompt
+                if isinstance(negative_prompt, list)
+                else [negative_prompt] * batch_size
+            )
         text_embeddings = self._encode_prompt(
-            prompt, device, num_videos_per_prompt, do_classifier_free_guidance, negative_prompt
+            prompt,
+            device,
+            num_videos_per_prompt,
+            do_classifier_free_guidance,
+            negative_prompt,
         )
         text_embeddings = torch.cat([text_embeddings] * context_batch_size)
-        
-        reference_control_writer = ReferenceNetAttention(referencenet, do_classifier_free_guidance=True, mode='write', fusion_blocks="full", batch_size=context_batch_size, is_image=True,)
+
+        reference_control_writer = ReferenceNetAttention(
+            referencenet,
+            do_classifier_free_guidance=True,
+            mode="write",
+            fusion_blocks="full",
+            batch_size=context_batch_size,
+            is_image=True,
+        )
         # reference_control_writer = ReferenceNetAttention(appearance_encoder, do_classifier_free_guidance=True, mode='write', batch_size=context_batch_size)
-        reference_control_reader = ReferenceNetAttention(self.unet, do_classifier_free_guidance=True, mode='read', fusion_blocks="full", batch_size=context_batch_size, is_image=True,)
-        
+        reference_control_reader = ReferenceNetAttention(
+            self.unet,
+            do_classifier_free_guidance=True,
+            mode="read",
+            fusion_blocks="full",
+            batch_size=context_batch_size,
+            is_image=True,
+        )
+
         is_dist_initialized = kwargs.get("dist", False)
         rank = kwargs.get("rank", 0)
         world_size = kwargs.get("world_size", 1)
 
         # Prepare video
-        assert num_videos_per_prompt == 1   # FIXME: verify if num_videos_per_prompt > 1 works
-        assert batch_size == 1              # FIXME: verify if batch_size > 1 works
+        assert (
+            num_videos_per_prompt == 1
+        )  # FIXME: verify if num_videos_per_prompt > 1 works
+        assert batch_size == 1  # FIXME: verify if batch_size > 1 works
         # control = self.prepare_condition(
         #         condition=controlnet_condition,
         #         device=device,
@@ -647,7 +744,9 @@ class AnimationAnyonePipeline(DiffusionPipeline):
 
         # Prepare latent variables
         if init_latents is not None:
-            latents = rearrange(init_latents, "(b f) c h w -> b c f h w", f=video_length)
+            latents = rearrange(
+                init_latents, "(b f) c h w -> b c f h w", f=video_length
+            )
         else:
             num_channels_latents = self.unet.in_channels
             latents = self.prepare_latents(
@@ -669,94 +768,130 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         # Prepare text embeddings for controlnet
         # controlnet_text_embeddings = text_embeddings.repeat_interleave(video_length, 0)
         # _, controlnet_text_embeddings_c = controlnet_text_embeddings.chunk(2)
-        
+
         # controlnet_res_samples_cache_dict = {i:None for i in range(video_length)}
 
         # For img2img setting
         if num_actual_inference_steps is None:
             num_actual_inference_steps = num_inference_steps
-        
+
         if isinstance(source_image, str):
-            ref_image_latents = self.images2latents(np.array(Image.open(source_image).resize((width, height)))[None, :], latents_dtype).cuda()
-            clip_ref_image = clip_image_processor(images=Image.open(source_image).convert('RGB'), return_tensors="pt").pixel_values
-        
+            ref_image_latents = self.images2latents(
+                np.array(Image.open(source_image).resize((width, height)))[None, :],
+                latents_dtype,
+            ).cuda()
+            clip_ref_image = clip_image_processor(
+                images=Image.open(source_image).convert("RGB"), return_tensors="pt"
+            ).pixel_values
+
         elif isinstance(source_image, np.ndarray):
-            ref_image_latents = self.images2latents(source_image[None, :], latents_dtype).cuda()
-            clip_ref_image = clip_image_processor(images=Image.fromarray(source_image).convert('RGB'), return_tensors="pt").pixel_values
-        
+            ref_image_latents = self.images2latents(
+                source_image[None, :], latents_dtype
+            ).cuda()
+            clip_ref_image = clip_image_processor(
+                images=Image.fromarray(source_image).convert("RGB"), return_tensors="pt"
+            ).pixel_values
+
         # prepare clip image embedding
         # adapt from https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_video_diffusion/pipeline_stable_video_diffusion.py#L115
-        image_embeddings = clip_image_encoder(clip_ref_image).unsqueeze(1).to(device=text_embeddings.device,dtype=text_embeddings.dtype)
+        image_embeddings = (
+            clip_image_encoder(clip_ref_image)
+            .unsqueeze(1)
+            .to(device=text_embeddings.device, dtype=text_embeddings.dtype)
+        )
         bs_embed, seq_len, _ = image_embeddings.shape
         image_embeddings = image_embeddings.repeat(1, num_videos_per_prompt, 1)
-        image_embeddings = image_embeddings.view(bs_embed * num_videos_per_prompt, seq_len, -1)
+        image_embeddings = image_embeddings.view(
+            bs_embed * num_videos_per_prompt, seq_len, -1
+        )
         if do_classifier_free_guidance:
             negative_image_embeddings = torch.zeros_like(image_embeddings)
             image_embeddings = torch.cat([negative_image_embeddings, image_embeddings])
-            
 
-        
         context_scheduler = get_context_scheduler(context_schedule)
-        
+
         # def prepare_condition(self, condition, num_videos_per_prompt, device, dtype, do_classifier_free_guidance):
-            #     # prepare conditions for controlnet
-            #     condition = torch.from_numpy(condition.copy()).to(device=device, dtype=dtype) / 255.0
-            #     condition = torch.stack([condition for _ in range(num_videos_per_prompt)], dim=0)
-            #     condition = rearrange(condition, 'b f h w c -> (b f) c h w').clone()
-            #     if do_classifier_free_guidance:
-            #         condition = torch.cat([condition] * 2)
-            #     return condition
-        
+        #     # prepare conditions for controlnet
+        #     condition = torch.from_numpy(condition.copy()).to(device=device, dtype=dtype) / 255.0
+        #     condition = torch.stack([condition for _ in range(num_videos_per_prompt)], dim=0)
+        #     condition = rearrange(condition, 'b f h w c -> (b f) c h w').clone()
+        #     if do_classifier_free_guidance:
+        #         condition = torch.cat([condition] * 2)
+        #     return condition
+
         #### pose condition ####
-        pixel_transforms = transforms.Compose([
-            # transforms.RandomHorizontalFlip(),
-            # transforms.Resize(sample_size[0]),
-            # transforms.CenterCrop(sample_size),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
-        ])
-        
-        pose_condition = torch.from_numpy(pose_condition.copy()).to(device=device, dtype=latents.dtype).permute(0, 3, 1, 2) / 255.0
+        pixel_transforms = transforms.Compose(
+            [
+                # transforms.RandomHorizontalFlip(),
+                # transforms.Resize(sample_size[0]),
+                # transforms.CenterCrop(sample_size),
+                transforms.Normalize(
+                    mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True
+                ),
+            ]
+        )
+
+        pose_condition = (
+            torch.from_numpy(pose_condition.copy())
+            .to(device=device, dtype=latents.dtype)
+            .permute(0, 3, 1, 2)
+            / 255.0
+        )
         # latent pose
         pose_condition = pixel_transforms(pose_condition)
         latents_pose = poseguider(pose_condition)
         # latents_pose = rearrange(latents_pose, "(b f) c h w -> b c f h w", f=video_length)
-        if do_classifier_free_guidance: latents_pose = latents_pose.repeat(2,1,1,1) # b c h w
-        
+        if do_classifier_free_guidance:
+            latents_pose = latents_pose.repeat(2, 1, 1, 1)  # b c h w
+
         # latents_pose = rearrange(latents_pose, "(b f) c h w -> b c f h w", f=video_length)
         # if do_classifier_free_guidance: latents_pose = latents_pose.repeat(2,1,1,1,1)
         #### pose condition ####
-        
-        for i, t in tqdm(enumerate(timesteps), total=len(timesteps), disable=(rank!=0)):
+
+        for i, t in tqdm(
+            enumerate(timesteps), total=len(timesteps), disable=(rank != 0)
+        ):
             referencenet(
-                ref_image_latents.repeat(context_batch_size * (2 if do_classifier_free_guidance else 1), 1, 1, 1),
+                ref_image_latents.repeat(
+                    context_batch_size * (2 if do_classifier_free_guidance else 1),
+                    1,
+                    1,
+                    1,
+                ),
                 t,
                 encoder_hidden_states=image_embeddings,
                 return_dict=False,
             )
             reference_control_reader.update(reference_control_writer)
 
-            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t) + latents_pose
-            
+            latent_model_input = (
+                torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+            )
+            latent_model_input = (
+                self.scheduler.scale_model_input(latent_model_input, t) + latents_pose
+            )
+
             noise_pred = self.unet(
-                latent_model_input, 
-                t, 
+                latent_model_input,
+                t,
                 encoder_hidden_states=image_embeddings,
                 return_dict=False,
             )[0]
-            
+
             if do_classifier_free_guidance:
-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-            
-            latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
-            
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + guidance_scale * (
+                    noise_pred_text - noise_pred_uncond
+                )
+
+            latents = self.scheduler.step(
+                noise_pred, t, latents, **extra_step_kwargs, return_dict=False
+            )[0]
+
             reference_control_writer.clear()
-            
+
             # pass
-        
-        
-        
+
         # # Denoising loop
         # for i, t in tqdm(enumerate(timesteps), total=len(timesteps), disable=(rank!=0)):
         #     if num_actual_inference_steps is not None and i < num_inference_steps - num_actual_inference_steps:
@@ -771,22 +906,20 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         #         (1, 1, latents.shape[2], 1, 1), device=latents.device, dtype=latents.dtype
         #     )
 
-            
-            
         #     # appearance_encoder(
         #     #     ref_image_latents.repeat(context_batch_size * (2 if do_classifier_free_guidance else 1), 1, 1, 1),
         #     #     t,
         #     #     encoder_hidden_states=text_embeddings,
         #     #     return_dict=False,
         #     # )
-            
+
         #     referencenet(
         #         ref_image_latents.repeat(context_batch_size * (2 if do_classifier_free_guidance else 1), 1, 1, 1),
         #         t,
         #         encoder_hidden_states=image_embeddings,
         #         return_dict=False,
         #     )
-            
+
         #     context_queue = list(context_scheduler(
         #         0, num_inference_steps, latents.shape[2], context_frames, context_stride, 0
         #     ))
@@ -803,7 +936,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         #     #     # prepare inputs for controlnet
         #     #     b, c, f, h, w = controlnet_latent_input.shape
         #     #     controlnet_latent_input = rearrange(controlnet_latent_input, "b c f h w -> (b f) c h w")
-                
+
         #     #     # controlnet inference
         #     #     down_block_res_samples, mid_block_res_sample = self.controlnet(
         #     #         controlnet_latent_input,
@@ -825,7 +958,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         #     global_context = []
         #     for i in range(num_context_batches):
         #         global_context.append(context_queue[i*context_batch_size: (i+1)*context_batch_size])
-            
+
         #     for context in global_context[rank::world_size]:
         #         # expand the latents if we are doing classifier free guidance
         #         latent_model_input = (
@@ -833,42 +966,42 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         #             .to(device)
         #             .repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1)
         #         )
-                
+
         #         latent_model_input = self.scheduler.scale_model_input(latent_model_input + latents_pose, t)
 
         #         b, c, f, h, w = latent_model_input.shape
         #         # down_block_res_samples, mid_block_res_sample = self.select_controlnet_res_samples(
-        #         #     controlnet_res_samples_cache_dict, 
+        #         #     controlnet_res_samples_cache_dict,
         #         #     context,
         #         #     do_classifier_free_guidance,
         #         #     b, f
         #         # )
-                
+
         #         reference_control_reader.update(reference_control_writer)
         #         pred = self.unet(
-        #             latent_model_input, 
-        #             t, 
+        #             latent_model_input,
+        #             t,
         #             encoder_hidden_states=image_embeddings[:b],
         #             return_dict=False,
-        #         )[0]               
+        #         )[0]
         #         # # predict the noise residual
         #         # pred = self.unet(
-        #         #     latent_model_input, 
-        #         #     t, 
+        #         #     latent_model_input,
+        #         #     t,
         #         #     encoder_hidden_states=text_embeddings[:b],
         #         #     down_block_additional_residuals=down_block_res_samples,
         #         #     mid_block_additional_residual=mid_block_res_sample,
         #         #     return_dict=False,
         #         # )[0]
-                
+
         #         reference_control_reader.clear()
-                
+
         #         pred_uc, pred_c = pred.chunk(2)
         #         pred = torch.cat([pred_uc.unsqueeze(0), pred_c.unsqueeze(0)])
         #         for j, c in enumerate(context):
         #             noise_pred[:, :, c] = noise_pred[:, :, c] + pred[:, j]
         #             counter[:, :, c] = counter[:, :, c] + 1
-                    
+
         #     if is_dist_initialized:
         #         noise_pred_gathered = [torch.zeros_like(noise_pred) for _ in range(world_size)]
         #         if rank == 0:
@@ -881,7 +1014,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         #             for k in range(1, world_size):
         #                 for context in global_context[k::world_size]:
         #                     for j, c in enumerate(context):
-        #                         noise_pred[:, :, c] = noise_pred[:, :, c] + noise_pred_gathered[k][:, :, c] 
+        #                         noise_pred[:, :, c] = noise_pred[:, :, c] + noise_pred_gathered[k][:, :, c]
         #                         counter[:, :, c] = counter[:, :, c] + 1
 
         #     # perform guidance
@@ -891,17 +1024,19 @@ class AnimationAnyonePipeline(DiffusionPipeline):
 
         #     # compute the previous noisy sample x_t -> x_t-1
         #     latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
-            
+
         #     if is_dist_initialized:
         #         dist.broadcast(latents, 0)
         #         dist.barrier()
-            
+
         #     reference_control_writer.clear()
 
         # interpolation_factor = 1
         # latents = self.interpolate_latents(latents, interpolation_factor, device)
         # Post-processing
-        video = self.decode_latents(latents, rank, decoder_consistency=decoder_consistency)
+        video = self.decode_latents(
+            latents, rank, decoder_consistency=decoder_consistency
+        )
 
         if is_dist_initialized:
             dist.barrier()
@@ -912,5 +1047,5 @@ class AnimationAnyonePipeline(DiffusionPipeline):
 
         if not return_dict:
             return video
-        
+
         return AnimationPipelineOutput(videos=video)

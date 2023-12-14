@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "torch run",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/ubuntu/miniconda3/envs/manimate/bin/torchrun",
+            "args": [
+                "--nnodes=1",
+                "--nproc_per_node=1",
+                "train2.py",
+                "--config",
+                "configs/training/my_train_stage_1.yaml"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "stopOnEntry": false,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "pipeline",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/ubuntu/miniconda3/envs/manimate/bin/python",
+            "args": [
+                "debug.py"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "stopOnEntry": false,
+            "console": "integratedTerminal"
+        }
+    ]
+}
