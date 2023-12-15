@@ -44,6 +44,7 @@ from models.ReferenceEncoder import ReferenceEncoder
 from models.PoseGuider import PoseGuider
 from models.ReferenceNet import ReferenceNet
 from models.ReferenceNet_attention import ReferenceNetAttention
+from utils.training_utils import compute_snr
 
 import wandb
 
@@ -247,7 +248,8 @@ def main(
     enable_xformers_memory_efficient_attention: bool = True,
     global_seed: int = 42,
     is_debug: bool = False,
-    wandb_project=None,
+    wandb_project: str =None,
+    snr_gamma: float = None
 ):
     check_min_version("0.21.4")
     if not use_wandb:
@@ -610,7 +612,19 @@ def main(
                 model_pred = unet(
                     noisy_latents, timesteps, encoder_hidden_states
                 ).sample
-                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+
+                if snr_gamma is None:
+                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                else:
+                    snr = compute_snr(noise_scheduler, timesteps)
+                    if noise_scheduler.config.prediction_type == "v_prediction":
+                        snr = snr + 1
+                    mse_loss_weights = (
+                        torch.stack([snr, snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
+                    )
+                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+                    loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
+                    loss = loss.mean()
 
             optimizer.zero_grad()
 
