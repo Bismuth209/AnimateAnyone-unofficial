@@ -143,9 +143,6 @@ class AnimateAnyonePipeline(DiffusionPipeline):
         pixel_values = self.clip_processor(
             image, do_rescale=False, return_tensors="pt"
         )["pixel_values"].to(device)
-        import pdb
-
-        pdb.set_trace()
         image_embeddings = self.image_encoder(
             pixel_values=pixel_values
         ).last_hidden_state
