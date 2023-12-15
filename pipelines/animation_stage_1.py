@@ -38,8 +38,7 @@ from decord import VideoReader as decord_VideoReader
 import cv2
 import pdb
 
-def main(args):
-
+def load_models(args):
     *_, func_args = inspect.getargvalues(inspect.currentframe())
     func_args = dict(func_args)
     
@@ -49,7 +48,7 @@ def main(args):
     device = torch.device(f"cuda:{args.rank}")
     dist_kwargs = {"rank":args.rank, "world_size":args.world_size, "dist":args.dist}
     
-    if config.savename is None:
+    if 'savename' not in config or config.savename is None:
         time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         savedir = f"samples/{Path(args.config).stem}-{time_str}"
     else:
@@ -61,23 +60,21 @@ def main(args):
     
     if args.rank == 0:
         os.makedirs(savedir, exist_ok=True)
-
-    inference_config = OmegaConf.load(config.inference_config)
         
     ### >>> create animation pipeline >>> ###
-    # tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_clip_path, subfolder="tokenizer")
-    tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_clip_path)
+    tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_model_path, subfolder="tokenizer")
+    # tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_clip_path)
     
-    # text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path, subfolder="text_encoder")
-    text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path)
+    text_encoder = CLIPTextModel.from_pretrained(config.pretrained_model_path, subfolder="text_encoder")
+    # text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path)
     
     unet = UNet2DConditionModel.from_pretrained(config.pretrained_model_path, subfolder="unet")
     vae = AutoencoderKL.from_pretrained(config.pretrained_model_path, subfolder="vae")
     
     print(config.pretrained_poseguider_path) # /mnt/f/research/HumanVideo/AnimateAnyone-unofficial/poseguider_test_v0.ckpt
     poseguider = PoseGuider.from_pretrained(pretrained_model_path=config.pretrained_poseguider_path)
-    clip_image_encoder = ReferenceEncoder(model_path=config.pretrained_clip_path)
-    clip_image_processor = CLIPProcessor.from_pretrained(config.pretrained_clip_path,local_files_only=True)
+    clip_image_encoder = ReferenceEncoder(model_path=config.clip_model_path)
+    clip_image_processor = CLIPProcessor.from_pretrained(config.clip_model_path,local_files_only=True)
     
     referencenet = ReferenceNet.load_referencenet(pretrained_model_path=config.pretrained_referencenet_path)
     
@@ -99,10 +96,15 @@ def main(args):
     
     pipeline = AnimationAnyonePipeline(
         vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, unet=unet,
-        scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
+        scheduler=DDIMScheduler(**OmegaConf.to_container(config.noise_scheduler_kwargs)),
         # NOTE: UniPCMultistepScheduler
     )
+    return pipeline, config, device, reference_control_writer, reference_control_reader, referencenet, poseguider, clip_image_processor, clip_image_encoder, dist_kwargs, savedir
 
+def main(args):
+    from torch_snippets import dumpdill
+    dumpdill(args, '/tmp/tmp.args')
+    pipeline, config, device, reference_control_writer, reference_control_reader, referencenet, poseguider, clip_image_processor, clip_image_encoder, dist_kwargs, savedir = load_models(args)
     pipeline.to(device)
     
     # exit(0)
@@ -169,25 +171,6 @@ def main(args):
         
         generator = torch.Generator(device=torch.device("cuda:0"))
         generator.manual_seed(torch.initial_seed())
-        # sample = pipeline(
-        #     prompt,
-        #     negative_prompt         = n_prompt,
-        #     num_inference_steps     = config.steps,
-        #     guidance_scale          = config.guidance_scale,
-        #     width                   = W,
-        #     height                  = H,
-        #     video_length            = len(control),
-        #     controlnet_condition    = control,
-        #     init_latents            = init_latents,
-        #     generator               = generator,
-        #     num_actual_inference_steps = num_actual_inference_steps,
-        #     appearance_encoder       = appearance_encoder, 
-        #     reference_control_writer = reference_control_writer,
-        #     reference_control_reader = reference_control_reader,
-        #     source_image             = source_image,
-        #     **dist_kwargs,
-        # ).videos
-        
         sample = pipeline(
             prompt,
             negative_prompt         = n_prompt,
