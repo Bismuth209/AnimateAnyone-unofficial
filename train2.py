@@ -247,6 +247,7 @@ def main(
     enable_xformers_memory_efficient_attention: bool = True,
     global_seed: int = 42,
     is_debug: bool = False,
+    wandb_project=None,
 ):
     check_min_version("0.21.4")
     if not use_wandb:
@@ -286,7 +287,11 @@ def main(
     )
 
     if is_main_process and (not is_debug) and use_wandb:
-        wandb.init(project="animate anyone", config=config, entity="yeshwanth")
+        wandb.init(
+            project="animate anyone" if wandb_project is None else wandb_project,
+            config=config,
+            entity="yeshwanth",
+        )
         run = wandb.init(
             project="AnimateAnyone train stage 1"
             if image_finetune
@@ -521,7 +526,7 @@ def main(
         unet.train()
 
         for step, batch in enumerate(train_dataloader):
-            sanity_check()
+            # sanity_check()
             ### >>>> Training >>>> ###
 
             # Convert videos to latent space
@@ -770,12 +775,19 @@ if __name__ == "__main__":
         "--launcher", type=str, choices=["pytorch", "slurm"], default="pytorch"
     )
     parser.add_argument("--wandb", action="store_true")
+    parser.add_argument("--wandb_project", type=str)
     args = parser.parse_args()
 
     name = Path(args.config).stem
     config = OmegaConf.load(args.config)
 
-    main(name=name, launcher=args.launcher, use_wandb=args.wandb, **config)
+    main(
+        name=name,
+        launcher=args.launcher,
+        use_wandb=args.wandb,
+        wandb_project=args.wandb_project,
+        **config,
+    )
 
     # torchrun --nnodes=1 --nproc_per_node=1 train2.py --config configs/training/my_train_stage_1.yaml
     # torchrun --nnodes=1 --nproc_per_node=1 train2.py --config configs/training/my_train_stage_2.yaml

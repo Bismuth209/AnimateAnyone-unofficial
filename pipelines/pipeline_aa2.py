@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from torch_snippets import *
 import inspect
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Union
@@ -131,7 +132,7 @@ class AnimateAnyonePipeline(DiffusionPipeline):
     def _encode_image(
         self, image, device, num_videos_per_prompt, do_classifier_free_guidance
     ):
-        """Take PIL Image, send it though CLIPImageEncoder and get the embeddings"""
+        """Take Reference Image, send it though CLIPImageEncoder and get the embeddings"""
         dtype = next(self.image_encoder.parameters()).dtype
 
         if not isinstance(image, torch.Tensor):
@@ -142,6 +143,9 @@ class AnimateAnyonePipeline(DiffusionPipeline):
         pixel_values = self.clip_processor(
             image, do_rescale=False, return_tensors="pt"
         )["pixel_values"].to(device)
+        import pdb
+
+        pdb.set_trace()
         image_embeddings = self.image_encoder(
             pixel_values=pixel_values
         ).last_hidden_state
@@ -178,16 +182,18 @@ class AnimateAnyonePipeline(DiffusionPipeline):
             pose_sequences = []
             for ps in pose_sequence:
                 ps = self.image_processor.pil_to_numpy(ps)
-                ps = self.image_processor.numpy_to_pt(ps)
+                ps = self.image_processor.numpy_to_pt(ps)  # [-1, 1]
                 pose_sequences.append(ps)
             pose_sequence = torch.stack(pose_sequences)
-            # bs f 3 h w
+            # bs f 3 h w ; where f -> Number of frames
         elif isinstance(pose_sequence, list):
             # we got a single pose sequence
-            pose_sequence = self.image_processor.pil_to_numpy(pose_sequence)
-            pose_sequence = self.image_processor.numpy_to_pt(pose_sequence)
-            pose_sequence = pose_sequence.unsqueeze(0)
-            pose_sequence = pose_sequence.repeat(batch_size, 1, 1, 1, 1)
+            pose_sequence = self.image_processor.pil_to_numpy(pose_sequence)  # f H W 3
+            pose_sequence = self.image_processor.numpy_to_pt(pose_sequence)  # f 3 H W
+            pose_sequence = pose_sequence.unsqueeze(0)  # 1 16 3 H W
+            pose_sequence = pose_sequence.repeat(
+                batch_size, 1, 1, 1, 1
+            )  # bs f 3 H W [-1, 1]
             # bs f 3 h w
         else:
             do_normalise = False
@@ -204,10 +210,6 @@ class AnimateAnyonePipeline(DiffusionPipeline):
 
         if do_classifier_free_guidance:
             negative_pose_embeddings = torch.zeros_like(pose_embeddings)
-
-            # For classifier free guidance, we need to do two forward passes.
-            # Here we concatenate the unconditional and text embeddings into a single batch
-            # to avoid doing two forward passes
             pose_embeddings = torch.cat([negative_pose_embeddings, pose_embeddings])
 
         return pose_embeddings
@@ -448,12 +450,19 @@ class AnimateAnyonePipeline(DiffusionPipeline):
         Examples:
         """
         # 0. Default height and width to unet
-        height = (
-            height or self.unet.config.sample_size * self.vae_scale_factor
-        )  # 576 or 64 * 8 = 256
-        width = (
-            width or self.unet.config.sample_size * self.vae_scale_factor
-        )  # 576 or 64 * 8 = 256
+        from copy import copy
+
+        ogimage = copy(image)
+        if isinstance(image, PIL.Image.Image):
+            width, height = image.size  # 256 256
+        else:
+            height = (
+                height or self.unet.config.sample_size * self.vae_scale_factor
+            )  # 576 or 64 * 8 = 256
+            width = (
+                width or self.unet.config.sample_size * self.vae_scale_factor
+            )  # 576 or 64 * 8 = 256
+            raise NotImplementedError
 
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(image, pose_sequence, height, width)
@@ -482,13 +491,10 @@ class AnimateAnyonePipeline(DiffusionPipeline):
         # corresponds to doing no classifier free guidance.
         do_classifier_free_guidance = max_guidance_scale > 1.0
 
-        # 4. Encode reference image for cross attention
-        image_embeddings = self._encode_image(
-            image, device, num_videos_per_prompt, do_classifier_free_guidance
-        )
-
         # 3. Encode reference image using VAE as inputs to ReferenceNet
-        image = self.image_processor.preprocess(image, height=height, width=width)
+        image = self.image_processor.preprocess(
+            image, height=height, width=width
+        )  # 1 3 256 256
 
         needs_upcasting = (
             self.vae.dtype == torch.float16 and self.vae.config.force_upcast
@@ -496,16 +502,25 @@ class AnimateAnyonePipeline(DiffusionPipeline):
         if needs_upcasting:
             self.vae.to(dtype=torch.float32)
 
+        # 4. Encode reference image for cross attention, i.e, via clip
+        image_embeddings = self._encode_image(
+            ogimage, device, num_videos_per_prompt, do_classifier_free_guidance
+        )  # bs 50 768
+
         image_latents = self._encode_vae_image(
             image, device, num_videos_per_prompt, do_classifier_free_guidance
-        )  # 1 4 72 128
+        )  # 1 4 32 32 (256//8)
         # image_latents = image_latents.to(image_embeddings.dtype)
 
         # 5. Get ReferenceNet hidden states
         reference_hidden_states = self.referencenet(
             image_latents, 0, image_embeddings, return_dict=False
-        )[-1]
-        # 1 320 72 128
+        )  # [-1]
+        # 1 320
+
+        import pdb
+
+        pdb.set_trace()
 
         # 6. Encode pose sequences
         pose_embeddings = self._encode_pose_sequence(
@@ -514,7 +529,7 @@ class AnimateAnyonePipeline(DiffusionPipeline):
             device,
             num_videos_per_prompt,
             do_classifier_free_guidance,
-        )
+        )  # 16 4 32 32
 
         # 7. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -532,7 +547,7 @@ class AnimateAnyonePipeline(DiffusionPipeline):
             device,
             generator,
             latents,
-        )
+        )  # 16 4 32 32 [-4 4]
 
         # 9. Prepare guidance scale
         guidance_scale = torch.linspace(

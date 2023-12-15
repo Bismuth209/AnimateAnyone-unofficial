@@ -27,10 +27,12 @@ class ReferenceEncoder(nn.Module):
             param.requires_grad = False
 
     def forward(self, input):
-        pixel_values = self.processor.preprocess(input, return_tensors="pt")[
-            "pixel_values"
-        ]
-        print(pixel_values)
+        if isinstance(input, Image.Image):
+            pixel_values = self.processor.preprocess(input, return_tensors="pt")[
+                "pixel_values"
+            ]
+        elif isinstance(input, torch.Tensor):
+            pixel_values = input
         outputs = self.model(pixel_values)
         pooled_output = outputs.pooler_output
         return pooled_output

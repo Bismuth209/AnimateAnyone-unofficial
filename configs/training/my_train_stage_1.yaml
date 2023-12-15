@@ -3,8 +3,7 @@ image_finetune: true
 output_dir: "outputs"
 pretrained_model_path: "checkpoints/stable-diffusion-v1-5"
 clip_model_path: "checkpoints/clip-vit-base-patch32"
-poseguider_checkpoint_path: ""
-referencenet_checkpoint_path: ""
+referencenet_and_poseguider_checkpoint_path: ""
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
@@ -26,10 +25,10 @@ train_data:
 
 validation_data:
   prompts:
-    - "Snow rocky mountains peaks canyon. Snow blanketed rocky mountains surround and shadow deep canyons."
-    - "A drone view of celebration with Christma tree and fireworks, starry sky - background."
-    - "Robot dancing in times square."
-    - "Pacific coast, carmel by the sea ocean and waves."
+    - "girl dancing in her room"
+    - "girl dancing in a forest"
+    - "boy dancing in her room"
+    - "boy dancing in a forest"
   num_inference_steps: 25
   guidance_scale: 8.
 
@@ -50,7 +49,7 @@ checkpointing_steps:  10000
 gradient_accumulation_steps: 16
 
 
-validation_steps:       5000
+validation_steps:       100
 validation_steps_tuple: [2, 50]
 
 global_seed: 42
