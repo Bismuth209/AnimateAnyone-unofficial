@@ -224,14 +224,19 @@ def main(
     tokenizer    = CLIPTokenizer.from_pretrained(pretrained_model_path, subfolder="tokenizer")
     text_encoder = CLIPTextModel.from_pretrained(pretrained_model_path, subfolder="text_encoder")
     clip_image_encoder = ReferenceEncoder(model_path=clip_model_path)
-    poseguider = PoseGuider(noise_latent_channels=4)
-    referencenet = ReferenceNet.from_pretrained(pretrained_model_path, subfolder="unet")
-    if not image_finetune:
-        poseguider_state_dict = torch.load(poseguider_checkpoint_path, map_location="cpu")
-        referencenet_state_dict = torch.load(referencenet_checkpoint_path, map_location="cpu")
-        poseguider.load_state_dict(poseguider_state_dict, strict=False)
-        referencenet.load_state_dict(state_dict, strict=False)
-
+    try:
+        poseguider = PoseGuider.from_pretrained(poseguider_checkpoint_path)
+    except Exception as e:
+        Warn(f'Failed to load pretrained weights from {poseguider_checkpoint_path}. Initializing with random weights')
+        poseguider = PoseGuider(noise_latent_channels=4)
+    
+    try:
+        referencenet = ReferenceNet.from_pretrained(referencenet_checkpoint_path)
+    except:
+        Warn(f'Failed to load pretrained weights from {referencenet_checkpoint_path}. Initializing with {pretrained_model_path} weights')
+        referencenet = ReferenceNet.from_pretrained(pretrained_model_path, subfolder="unet")
+    write_json(AD(referencenet.config).to_dict(), f'{output_dir}/referencenet.config.json')
+    
     
 
     if not image_finetune:
@@ -241,6 +246,7 @@ def main(
         )
     else:
         unet = UNet2DConditionModel.from_pretrained(pretrained_model_path, subfolder="unet")
+    write_json(AD(unet.config).to_dict(), f'{output_dir}/referencenet.config.json')
         
     reference_control_writer = ReferenceNetAttention(referencenet, do_classifier_free_guidance=False, mode='write', fusion_blocks=fusion_blocks, is_image=image_finetune)
     reference_control_reader = ReferenceNetAttention(unet, do_classifier_free_guidance=False, mode='read', fusion_blocks=fusion_blocks, is_image=image_finetune)
@@ -267,7 +273,6 @@ def main(
     for name, param in unet.named_parameters():
         for trainable_module_name in trainable_modules:
             if trainable_module_name in name:
-                print(trainable_module_name)
                 param.requires_grad = True
                 break
     
@@ -366,16 +371,18 @@ def main(
 
     # Validation pipeline
     if not image_finetune:
+        validation_pipeline = None
         # validation_pipeline = AnimationPipeline(
         #     unet=unet, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler,
         # ).to("cuda")
-        raise NotImplementedError("Animation pipeline is still under construction")
+        # raise NotImplementedError("Animation pipeline is still under construction")
     else:
         validation_pipeline = StableDiffusionPipeline.from_pretrained(
             pretrained_model_path,
             unet=unet, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler, safety_checker=None,
         ).to(unet.device)
-    validation_pipeline.enable_vae_slicing()
+    if validation_pipeline:
+        validation_pipeline.enable_vae_slicing()
 
     # DDP warpper
     unet.to(local_rank)
@@ -516,8 +523,6 @@ def main(
                     loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
                     loss = loss.mean()
 
-                
-
             optimizer.zero_grad()
 
             # Backpropagate
@@ -573,6 +578,9 @@ def main(
                         state_dict,
                         os.path.join(save_path, f"checkpoint-epoch-{epoch+1}.ckpt"),
                     )
+                    # remove the old checkpoint
+                    try: os.remove(os.path.join(save_path, f'checkpoint-epoch-{epoch}.ckpt'))
+                    except FileNotFoundError: pass
                 else:
                     torch.save(state_dict, os.path.join(save_path, f"checkpoint.ckpt"))
                 logging.info(f"Saved state to {save_path} (global_step: {global_step})")
@@ -606,19 +614,20 @@ def main(
 
                 for idx, prompt in enumerate(prompts):
                     if not image_finetune:
-                        sample = validation_pipeline(
-                            prompt,
-                            generator=generator,
-                            video_length=train_data.sample_n_frames,
-                            height=height,
-                            width=width,
-                            **validation_data,
-                        ).videos
-                        save_videos_grid(
-                            sample,
-                            f"{output_dir}/samples/sample-{global_step}/{idx}.gif",
-                        )
-                        samples.append(sample)
+                        if validation_pipeline is not None:
+                            sample = validation_pipeline(
+                                prompt,
+                                generator=generator,
+                                video_length=train_data.sample_n_frames,
+                                height=height,
+                                width=width,
+                                **validation_data,
+                            ).videos
+                            save_videos_grid(
+                                sample,
+                                f"{output_dir}/samples/sample-{global_step}/{idx}.gif",
+                            )
+                            samples.append(sample)
 
                     else:
                         sample = validation_pipeline(
@@ -635,14 +644,15 @@ def main(
                         samples.append(sample)
 
                 if not image_finetune:
-                    samples = torch.concat(samples)
-                    save_path = f"{output_dir}/samples/sample-{global_step}.gif"
-                    save_videos_grid(samples, save_path)
-                    if use_wandb:
-                        wandb.log(
-                            {f"video_{global_step}": [wandb.Video(save_path)]},
-                            step=global_step,
-                        )
+                    if validation_pipeline is not None:
+                        samples = torch.concat(samples)
+                        save_path = f"{output_dir}/samples/sample-{global_step}.gif"
+                        save_videos_grid(samples, save_path)
+                        if use_wandb:
+                            wandb.log(
+                                {f"video_{global_step}": [wandb.Video(save_path)]},
+                                step=global_step,
+                            )
 
                 else:
                     samples = torch.stack(samples)
@@ -660,7 +670,7 @@ def main(
                             step=global_step,
                         )
 
-                logging.info(f"Saved samples to {save_path}")
+                    logging.info(f"Saved samples to {save_path}")
 
             logs = {
                 "step_loss": loss.detach().item(),
@@ -708,5 +718,5 @@ if __name__ == "__main__":
         **config,
     )
     
-    # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1.yaml
+    # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_v4.yaml
     # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_2.yaml

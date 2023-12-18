@@ -4,8 +4,11 @@ output_dir: "outputs"
 pretrained_model_path: "checkpoints/stable-diffusion-v1-5"
 clip_model_path: "checkpoints/clip-vit-base-patch32"
 pretrained_clip_path: "checkpoints/stable-diffusion-v1-5"
-pretrained_poseguider_path: "outputs/train_stage_1-2023-12-15T11-47-49/checkpoints/checkpoint-epoch-71.ckpt"
-pretrained_referencenet_path: "outputs/train_stage_1-2023-12-15T11-47-49/checkpoints/checkpoint-epoch-71.ckpt"
+pretrained_poseguider_path: "outputs/train_stage_1_v5-2023-12-16T06-22-29/checkpoints/checkpoint-epoch-238.ckpt"
+pretrained_referencenet_path: "outputs/train_stage_1_v5-2023-12-16T06-22-29/checkpoints/checkpoint-epoch-238.ckpt"
+# pretrained_poseguider_path: "outputs/train_stage_1_v5-2023-12-16T06-22-29/checkpoints/checkpoint.ckpt"
+# pretrained_referencenet_path: "outputs/train_stage_1_v5-2023-12-16T06-22-29/checkpoints/checkpoint.ckpt"
+
 inference_config: "/"
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
@@ -20,14 +23,14 @@ description: "### Train info: train stage 1: image pretrain ###"
 train_data:
   csv_path:     "/home/ubuntu/code/AnimateAnyone-unofficial/data/TikTok_info.csv"
   video_folder: "/home/ubuntu/data/animate-anyone/TikTok_dataset/"
-  sample_size:  256
+  sample_size:  512
   sample_stride: 4
   sample_n_frames: 16
   clip_model_path: "checkpoints/clip-vit-base-patch32"
 
 source_image: ["/home/ubuntu/data/animate-anyone/TikTok_dataset/00001/images/0001.png"]
 video_path: ["/home/ubuntu/data/animate-anyone/TikTok_dataset/00002/00002_dwpose.mp4"]
-size: 256
+size: 512
 S: -1
 offset: 1
 max_length: 24

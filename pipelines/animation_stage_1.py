@@ -211,12 +211,9 @@ def main(args):
             
             # add
             sample = rearrange(sample,"1 h w c -> 1 c 1 h w")
-            
             # pdb.set_trace()
             
-            
             samples_per_video.append(control[:, :, :modify_original_length])
-
             samples_per_video.append(sample[:, :, :modify_original_length])
             
             # print(samples_per_video.size())
