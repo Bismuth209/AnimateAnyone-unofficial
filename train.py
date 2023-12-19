@@ -27,7 +27,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import diffusers
 from diffusers import AutoencoderKL, DDIMScheduler
 from diffusers.models import UNet2DConditionModel
-from diffusers.pipelines import StableDiffusionPipeline
+# from diffusers.pipelines import StableDiffusionPipeline
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version
 from diffusers.utils.import_utils import is_xformers_available
@@ -102,6 +102,23 @@ def init_dist(launcher="slurm", backend='nccl', port=29500, **kwargs):
     return local_rank
 
 
+def get_parameters_without_gradients(model):
+    """
+    Returns a list of names of the model parameters that have no gradients.
+
+    Args:
+    model (torch.nn.Module): The model to check.
+    
+    Returns:
+    List[str]: A list of parameter names without gradients.
+    """
+    no_grad_params = []
+    for name, param in model.named_parameters():
+        print(f"{name} : {param.grad}")
+        if param.grad is None:
+            no_grad_params.append(name)
+    return no_grad_params
+
 
 def main(
     image_finetune: bool,
@@ -141,7 +158,7 @@ def main(
     lr_scheduler: str = "constant",
 
     trainable_modules: Tuple[str] = (None, ),
-    num_workers: int = 0,
+    num_workers: int = 8,
     train_batch_size: int = 1,
     adam_beta1: float = 0.9,
     adam_beta2: float = 0.999,
@@ -164,7 +181,7 @@ def main(
     check_min_version("0.21.4")
 
     # Initialize distributed training
-    local_rank      = init_dist(launcher=launcher)
+    local_rank      = init_dist(launcher=launcher, port=28888)
     global_rank     = dist.get_rank()
     num_processes   = dist.get_world_size()
     # num_processes   = 0
@@ -270,6 +287,7 @@ def main(
     
     # Set unet trainable parameters
     unet.requires_grad_(False)
+    # unet.requires_grad_(True)
     for name, param in unet.named_parameters():
         for trainable_module_name in trainable_modules:
             if trainable_module_name in name:
@@ -281,16 +299,16 @@ def main(
         referencenet.requires_grad_(True)
     else:
         poseguider.requires_grad_(False)
-        referencenet.requires_grad_(False)
-            
-    # 设置 poseguider 和 referencenet的所有参数都是可训练的
-    
+        referencenet.requires_grad_(False)    
                    
-    trainable_params = list(filter(lambda p: p.requires_grad, unet.parameters()))
     
+    trainable_params = list(filter(lambda p: p.requires_grad, unet.parameters()))
     if image_finetune:
         trainable_params += list(filter(lambda p: p.requires_grad, poseguider.parameters())) + \
                    list(filter(lambda p: p.requires_grad, referencenet.parameters()))
+    
+    # print(len(trainable_params))
+    # exit(0)
     
     optimizer = torch.optim.AdamW(
         trainable_params,
@@ -440,6 +458,9 @@ def main(
     for epoch in range(first_epoch, num_train_epochs):
         train_dataloader.sampler.set_epoch(epoch)
         unet.train()
+        poseguider.train()
+        referencenet.train()
+        
         
         for step, batch in enumerate(train_dataloader):
             ### >>>> Training >>>> ###
@@ -448,6 +469,7 @@ def main(
             pixel_values_pose = batch["pixel_values_pose"].to(local_rank)
             clip_ref_image = batch["clip_ref_image"].to(local_rank)
             pixel_values_ref_img = batch["pixel_values_ref_img"].to(local_rank)
+            drop_image_embeds = batch["drop_image_embeds"].to(local_rank) # torch.Size([bs])
             video_length = pixel_values.shape[1]
             
             with torch.no_grad():
@@ -474,7 +496,6 @@ def main(
             timesteps = timesteps.long()
             
             # Add noise to the latents according to the noise magnitude at each timestep
-            # (this is the forward diffusion process)
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
             
             
@@ -493,8 +514,15 @@ def main(
                 #     batch['text'], max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
                 # ).input_ids.to(latents.device)
                 # encoder_hidden_states = text_encoder(prompt_ids)[0]
-                encoder_hidden_states = clip_image_encoder(clip_ref_image).unsqueeze(1)
-                
+                encoder_hidden_states = clip_image_encoder(clip_ref_image).unsqueeze(1) # [bs,1,768]
+            
+            # support cfg train
+            mask = drop_image_embeds > 0
+            mask = mask.unsqueeze(1).unsqueeze(2).expand_as(encoder_hidden_states)
+            encoder_hidden_states[mask] = 0
+
+            # pdb.set_trace()
+            
             # Get the target for loss depending on the prediction type
             if noise_scheduler.config.prediction_type == "epsilon":
                 target = noise
@@ -506,7 +534,11 @@ def main(
             # Predict the noise residual and compute loss
             # Mixed-precision training
             with torch.cuda.amp.autocast(enabled=mixed_precision_training):
-                referencenet(latents_ref_img, timesteps, encoder_hidden_states)
+                ref_timesteps = torch.zeros_like(timesteps)
+                
+                # pdb.set_trace()
+                
+                referencenet(latents_ref_img, ref_timesteps, encoder_hidden_states)
                 reference_control_reader.update(reference_control_writer)
                 
                 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
@@ -530,14 +562,26 @@ def main(
                 scaler.scale(loss).backward()
                 """ >>> gradient clipping >>> """
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
                 """ <<< gradient clipping <<< """
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 loss.backward()
+                
+                # pdb.set_trace()
+                
+                # no_grad_params_poseguider = get_parameters_without_gradients(poseguider)
+                # no_grad_params_referencenet = get_parameters_without_gradients(referencenet)
+                # if len(no_grad_params_poseguider) != 0:
+                #     print("PoseGuider no grad params:", no_grad_params_poseguider)
+                # if len(no_grad_params_referencenet) != 0:
+                #     print("ReferenceNet no grad params:", no_grad_params_referencenet)
+                
                 """ >>> gradient clipping >>> """
-                torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
                 """ <<< gradient clipping <<< """
                 optimizer.step()
 
@@ -582,7 +626,7 @@ def main(
                     try: os.remove(os.path.join(save_path, f'checkpoint-epoch-{epoch}.ckpt'))
                     except FileNotFoundError: pass
                 else:
-                    torch.save(state_dict, os.path.join(save_path, f"checkpoint.ckpt"))
+                    torch.save(state_dict, os.path.join(save_path, f"checkpoint-global_step-{global_step}.ckpt"))
                 logging.info(f"Saved state to {save_path} (global_step: {global_step})")
 
             # Periodically validation
@@ -718,5 +762,10 @@ if __name__ == "__main__":
         **config,
     )
     
-    # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_v4.yaml
-    # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_2.yaml
+
+    # CUDA_VISIBLE_DEVICES=1 torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_oneshot.yaml
+    # CUDA_VISIBLE_DEVICES=2,3 torchrun --nnodes=1 --nproc_per_node=2 --master_port 28888 train.py --config configs/training/train_stage_1.yaml
+    # CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node=6 --master_port 28889 train.py --config configs/training/train_stage_1.yaml
+    # CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun --nnodes=1 --nproc_per_node=4 --master_port 28887 train.py --config configs/training/train_stage_1.yaml
+
+    # CUDA_VISIBLE_DEVICES=7 torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_2.yaml

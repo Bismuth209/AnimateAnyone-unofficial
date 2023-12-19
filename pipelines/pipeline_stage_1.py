@@ -374,7 +374,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
     #     condition = torch.from_numpy(condition.copy()).to(device=device, dtype=dtype) / 255.0
     #     condition = torch.stack([condition for _ in range(num_videos_per_prompt)], dim=0)
     #     condition = rearrange(condition, 'b f h w c -> (b f) c h w').clone()
-    #     if do_classifier_free_guidance:
+    #     if do_classifier_free_guidance:x
     #         condition = torch.cat([condition] * 2)
     #     return condition
 
@@ -706,14 +706,6 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         
         context_scheduler = get_context_scheduler(context_schedule)
         
-        # def prepare_condition(self, condition, num_videos_per_prompt, device, dtype, do_classifier_free_guidance):
-            #     # prepare conditions for controlnet
-            #     condition = torch.from_numpy(condition.copy()).to(device=device, dtype=dtype) / 255.0
-            #     condition = torch.stack([condition for _ in range(num_videos_per_prompt)], dim=0)
-            #     condition = rearrange(condition, 'b f h w c -> (b f) c h w').clone()
-            #     if do_classifier_free_guidance:
-            #         condition = torch.cat([condition] * 2)
-            #     return condition
         
         #### pose condition ####
         pixel_transforms = transforms.Compose([
@@ -738,15 +730,19 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         # if do_classifier_free_guidance: latents_pose = latents_pose.repeat(2,1,1,1,1)
         #### pose condition ####
         
-        for i, t in enumerate(timesteps):
+        for i, t in tqdm(enumerate(timesteps), total=len(timesteps), disable=(rank!=0)):
+            
             # print("### ",i," : ",latents.size(),latents.min(),latents.max()," ###")
-            referencenet(
-                ref_image_latents.repeat(context_batch_size * (2 if do_classifier_free_guidance else 1), 1, 1, 1),
-                t,
-                encoder_hidden_states=image_embeddings,
-                return_dict=False,
-            )
-            reference_control_reader.update(reference_control_writer)
+            # print(t)
+            
+            if i == 0:
+                referencenet(
+                    ref_image_latents.repeat(context_batch_size * (2 if do_classifier_free_guidance else 1), 1, 1, 1),
+                    torch.zeros_like(t),
+                    encoder_hidden_states=image_embeddings,
+                    return_dict=False,
+                )
+                reference_control_reader.update(reference_control_writer)
 
             latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t) + latents_pose
@@ -764,9 +760,10 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             
             latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
             
-            reference_control_writer.clear()
-            reference_control_reader.clear()
-        
+
+        # interpolation_factor = 1
+        # latents = self.interpolate_latents(latents, interpolation_factor, device)
+        # Post-processing
         video = self.decode_latents(latents, rank, decoder_consistency=decoder_consistency)
 
         if is_dist_initialized:
