@@ -27,7 +27,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import diffusers
 from diffusers import AutoencoderKL, DDIMScheduler
 from diffusers.models import UNet2DConditionModel
-# from diffusers.pipelines import StableDiffusionPipeline
+from diffusers.pipelines import StableDiffusionPipeline
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version
 from diffusers.utils.import_utils import is_xformers_available
@@ -769,3 +769,6 @@ if __name__ == "__main__":
     # CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun --nnodes=1 --nproc_per_node=4 --master_port 28887 train.py --config configs/training/train_stage_1.yaml
 
     # CUDA_VISIBLE_DEVICES=7 torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_2.yaml
+
+    # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_v6.yaml --wandb --wandb_project=dummy
+    # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_v6.yaml
