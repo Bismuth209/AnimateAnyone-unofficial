@@ -89,7 +89,7 @@ class PoseGuider(nn.Module):
         state_dict = torch.load(pretrained_model_path, map_location="cpu")
         model = PoseGuider(noise_latent_channels=4)
                 
-        m, u = model.load_state_dict(state_dict['poseguider_state_dict'], strict=False)
+        m, u = model.load_state_dict(state_dict['poseguider_state_dict'], strict=True)
         print(f"### missing keys: {len(m)}; \n### unexpected keys: {len(u)};")        
         params = [p.numel() for n, p in model.named_parameters()]
         print(f"### PoseGuider's Parameters: {sum(params) / 1e6} M")
