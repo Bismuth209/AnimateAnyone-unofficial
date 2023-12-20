@@ -1,0 +1,71 @@
+image_finetune: true
+
+output_dir: "outputs"
+pretrained_model_path: "checkpoints/stable-diffusion-v1-5"
+clip_model_path: "checkpoints/clip-vit-base-patch32"
+pretrained_clip_path: "checkpoints/stable-diffusion-v1-5"
+pretrained_poseguider_path: "outputs/train_stage_1_UBC_micro-2023-12-20T12-16-51/checkpoints/checkpoint-epoch-500.ckpt"
+pretrained_referencenet_path: "outputs/train_stage_1_UBC_micro-2023-12-20T12-16-51/checkpoints/checkpoint-epoch-500.ckpt"
+
+inference_config: "/"
+noise_scheduler_kwargs:
+  num_train_timesteps: 1000
+  beta_start:          0.00085
+  beta_end:            0.012
+  beta_schedule:       "scaled_linear"
+  steps_offset:        1
+  clip_sample:         false
+
+description: "### Train info: train stage 1: image pretrain ###"
+
+train_data:
+  csv_path:     "/home/ubuntu/code/AnimateAnyone-unofficial/data/TikTok_info.csv"
+  video_folder: "/home/ubuntu/data/animate-anyone/TikTok_dataset/"
+  sample_size:  512
+  sample_stride: 4
+  sample_n_frames: 16
+  clip_model_path: "checkpoints/clip-vit-base-patch32"
+
+source_image: ["/home/ubuntu/data/animate-anyone/TikTok_dataset/00001/images/0001.png"]
+video_path: ["/home/ubuntu/data/animate-anyone/TikTok_dataset/00002/00002_dwpose.mp4"]
+size: 512
+S: -1
+offset: 1
+max_length: 24
+L: 24
+steps: 100
+guidance_scale: 8.
+
+validation_data:
+  prompts:
+    - "girl dancing in a room"
+    - "girl dancing in a forest"
+    - "boy dancing in a room"
+    - "boy dancing in a forest"
+  num_inference_steps: 25
+
+trainable_modules:
+  - "motion_modules."
+
+unet_checkpoint_path: ""
+
+fusion_blocks: "full"
+
+learning_rate:    1.e-5
+train_batch_size: 1
+
+max_train_epoch:      -1
+max_train_steps:      30000
+checkpointing_epochs: -1
+checkpointing_steps:  10000
+gradient_accumulation_steps: 16
+
+
+validation_steps:       5000
+validation_steps_tuple: [2, 50]
+
+global_seed: 42
+mixed_precision_training: true
+enable_xformers_memory_efficient_attention: True
+
+is_debug: False

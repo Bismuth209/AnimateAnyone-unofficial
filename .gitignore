@@ -33,3 +33,6 @@ wandb/
 outputs/
 **/__pycache__/
 checkpoints/
+
+.git-sizhky
+.git-og
