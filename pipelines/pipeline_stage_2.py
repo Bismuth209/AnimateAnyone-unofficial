@@ -14,8 +14,7 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 from diffusers.configuration_utils import FrozenDict
 from diffusers.models import AutoencoderKL
-# from diffusers.pipeline_utils import DiffusionPipeline
-from diffusers.pipelines.pipeline_utils import DiffusionPipeline
+from diffusers.pipeline_utils import DiffusionPipeline
 from diffusers.schedulers import (
     DDIMScheduler,
     DPMSolverMultistepScheduler,
@@ -28,22 +27,15 @@ from diffusers.utils import deprecate, logging, BaseOutput
 
 from einops import rearrange
 
-# from magicanimate.models.unet_controlnet import UNet3DConditionModel
-# from magicanimate.models.controlnet import ControlNetModel
-
 from .context import (
     get_context_scheduler,
     get_total_steps
 )
 from utils.util import get_tensor_interpolation_method
 
-# from models.unet import UNet3DConditionModel
-# from models.ReferenceEncoder import ReferenceEncoder
-# from models.PoseGuider import PoseGuider
-# from models.ReferenceNet import ReferenceNet
+from models.unet import UNet3DConditionModel
+# from models.hack_unet3d import UNet3DConditionModel
 from models.ReferenceNet_attention import ReferenceNetAttention
-
-from diffusers.models import UNet2DConditionModel
 
 import torchvision.transforms as transforms
 
@@ -63,8 +55,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         vae: AutoencoderKL,
         text_encoder: CLIPTextModel,
         tokenizer: CLIPTokenizer,
-        unet: UNet2DConditionModel,
-        referencenet,
+        unet: UNet3DConditionModel,
         scheduler: Union[
             DDIMScheduler,
             PNDMScheduler,
@@ -90,7 +81,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
                 " it would be very nice if you could open a Pull request for the `scheduler/scheduler_config.json`"
                 " file"
             )
-            # deprecate("steps_offset!=1", "1.0.0", deprecation_message, standard_warn=False)
+            deprecate("steps_offset!=1", "1.0.0", deprecation_message, standard_warn=False)
             new_config = dict(scheduler.config)
             new_config["steps_offset"] = 1
             scheduler._internal_dict = FrozenDict(new_config)
@@ -103,7 +94,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
                 " future versions. If you have downloaded this checkpoint from the Hugging Face Hub, it would be very"
                 " nice if you could open a Pull request for the `scheduler/scheduler_config.json` file"
             )
-            # deprecate("clip_sample not set", "1.0.0", deprecation_message, standard_warn=False)
+            deprecate("clip_sample not set", "1.0.0", deprecation_message, standard_warn=False)
             new_config = dict(scheduler.config)
             new_config["clip_sample"] = False
             scheduler._internal_dict = FrozenDict(new_config)
@@ -135,7 +126,9 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             tokenizer=tokenizer,
             unet=unet,
             # controlnet=controlnet,
-            referencenet=referencenet,
+            # referencenet=referencenet,
+            # poseguider=poseguider,
+            # referenceencoder=referenceencoder,
             scheduler=scheduler,
         )
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
@@ -260,17 +253,24 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
 
         return text_embeddings
-
+    
     def decode_latents(self, latents, rank, decoder_consistency=None):
-        # deprecation_message = "The decode_latents method is deprecated and will be removed in 1.0.0. Please use VaeImageProcessor.postprocess(...) instead"
-        # deprecate("decode_latents", "1.0.0", deprecation_message, standard_warn=False)
-
-        latents = 1 / self.vae.config.scaling_factor * latents
-        image = self.vae.decode(latents, return_dict=False)[0]
-        image = (image / 2 + 0.5).clamp(0, 1)
-        # we always cast to float32 as this does not cause significant overhead and is compatible with bfloat16
-        image = image.cpu().permute(0, 2, 3, 1).float().numpy()
-        return image
+        video_length = latents.shape[2]
+        latents = 1 / 0.18215 * latents
+        latents = rearrange(latents, "b c f h w -> (b f) c h w")
+        # video = self.vae.decode(latents).sample
+        video = []
+        for frame_idx in tqdm(range(latents.shape[0]), disable=(rank!=0)):
+            if decoder_consistency is not None:
+                video.append(decoder_consistency(latents[frame_idx:frame_idx+1]))
+            else:
+                video.append(self.vae.decode(latents[frame_idx:frame_idx+1]).sample)
+        video = torch.cat(video)
+        video = rearrange(video, "(b f) c h w -> b c f h w", f=video_length)
+        video = (video / 2 + 0.5).clamp(0, 1)
+        # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
+        video = video.cpu().float().numpy()
+        return video
 
     def prepare_extra_step_kwargs(self, generator, eta):
         # prepare extra kwargs for the scheduler step, since not all schedulers have the same signature
@@ -303,24 +303,36 @@ class AnimationAnyonePipeline(DiffusionPipeline):
                 f"`callback_steps` has to be a positive integer but is {callback_steps} of type"
                 f" {type(callback_steps)}."
             )
-
+    
     def prepare_latents(self, batch_size, num_channels_latents, video_length, height, width, dtype, device, generator, latents=None, clip_length=16):
-        shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
+        shape = (batch_size, num_channels_latents, clip_length, height // self.vae_scale_factor, width // self.vae_scale_factor)
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
                 f" size of {batch_size}. Make sure the batch size matches the length of the generators."
             )
-
         if latents is None:
-            latents = torch.randn(shape, generator=generator, device=device, dtype=dtype).to(device)
+            rand_device = "cpu" if device.type == "mps" else device
+
+            if isinstance(generator, list):
+                latents = [
+                    torch.randn(shape, generator=generator[i], device=rand_device, dtype=dtype)
+                    for i in range(batch_size)
+                ]
+                latents = torch.cat(latents, dim=0).to(device)
+            else:
+                latents = torch.randn(shape, generator=generator, device=rand_device, dtype=dtype).to(device)
+                
+            latents = latents.repeat(1, 1, video_length//clip_length, 1, 1)
         else:
+            if latents.shape != shape:
+                raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
             latents = latents.to(device)
 
         # scale the initial noise by the standard deviation required by the scheduler
         latents = latents * self.scheduler.init_noise_sigma
         return latents
-
+    
     @torch.no_grad()
     def images2latents(self, images, dtype):
         """
@@ -334,7 +346,8 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             latents.append(self.vae.encode(images[frame_idx:frame_idx+1])['latent_dist'].mean * 0.18215)
         latents = torch.cat(latents)
         return latents
-
+    
+    
     def interpolate_latents(self, latents: torch.Tensor, interpolation_factor:int, device ):
         if interpolation_factor < 2:
             return latents
@@ -411,14 +424,6 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         decoder_consistency = None, 
         **kwargs,
     ):
-        """
-        New args:
-        - controlnet_condition          : condition map (e.g., depth, canny, keypoints) for controlnet
-        - controlnet_conditioning_scale : conditioning scale for controlnet
-        - init_latents                  : initial latents to begin with (used along with invert())
-        - num_actual_inference_steps    : number of actual inference steps (while total steps is num_inference_steps) 
-        """
-        # controlnet = self.controlnet
 
         # Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
@@ -443,9 +448,6 @@ class AnimationAnyonePipeline(DiffusionPipeline):
 
         # Encode input prompt
         # prompt = prompt if isinstance(prompt, list) else [prompt] * batch_size
-        
-        # print(prompt)
-        
         # if negative_prompt is not None:
         #     negative_prompt = negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] * batch_size 
         # text_embeddings = self._encode_prompt(
@@ -453,9 +455,9 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         # )
         # text_embeddings = torch.cat([text_embeddings] * context_batch_size)
         
-        reference_control_writer = ReferenceNetAttention(self.referencenet, do_classifier_free_guidance=do_classifier_free_guidance, mode='write', fusion_blocks="full", batch_size=context_batch_size, is_image=True,)
-        # reference_control_writer = ReferenceNetAttention(appearance_encoder, do_classifier_free_guidance=do_classifier_free_guidance, mode='write', batch_size=context_batch_size)
-        reference_control_reader = ReferenceNetAttention(self.unet, do_classifier_free_guidance=do_classifier_free_guidance, mode='read', fusion_blocks="full", batch_size=context_batch_size, is_image=True,)
+        reference_control_writer = ReferenceNetAttention(referencenet, do_classifier_free_guidance=do_classifier_free_guidance, mode='write', fusion_blocks="full", batch_size=context_batch_size, is_image=False,)
+        # reference_control_writer = ReferenceNetAttention(appearance_encoder, do_classifier_free_guidance=True, mode='write', batch_size=context_batch_size)
+        reference_control_reader = ReferenceNetAttention(self.unet, do_classifier_free_guidance=do_classifier_free_guidance, mode='read', fusion_blocks="full", batch_size=context_batch_size, is_image=False,)
         
         is_dist_initialized = kwargs.get("dist", False)
         rank = kwargs.get("rank", 0)
@@ -477,9 +479,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         self.scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = self.scheduler.timesteps
 
-        # text_embeddings_dtype = torch.float16
         text_embeddings_dtype = torch.float32
-        
 
         # Prepare latent variables
         if init_latents is not None:
@@ -501,12 +501,6 @@ class AnimationAnyonePipeline(DiffusionPipeline):
 
         # Prepare extra step kwargs.
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
-
-        # Prepare text embeddings for controlnet
-        # controlnet_text_embeddings = text_embeddings.repeat_interleave(video_length, 0)
-        # _, controlnet_text_embeddings_c = controlnet_text_embeddings.chunk(2)
-        
-        # controlnet_res_samples_cache_dict = {i:None for i in range(video_length)}
 
         # For img2img setting
         if num_actual_inference_steps is None:
@@ -530,72 +524,129 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         if do_classifier_free_guidance:
             negative_image_embeddings = torch.zeros_like(image_embeddings)
             image_embeddings = torch.cat([negative_image_embeddings, image_embeddings])
-            
-
         
-        context_scheduler = get_context_scheduler(context_schedule)
-        
-        # def prepare_condition(self, condition, num_videos_per_prompt, device, dtype, do_classifier_free_guidance):
-            #     # prepare conditions for controlnet
-            #     condition = torch.from_numpy(condition.copy()).to(device=device, dtype=dtype) / 255.0
-            #     condition = torch.stack([condition for _ in range(num_videos_per_prompt)], dim=0)
-            #     condition = rearrange(condition, 'b f h w c -> (b f) c h w').clone()
-            #     if do_classifier_free_guidance:
-            #         condition = torch.cat([condition] * 2)
-            #     return condition
         
         #### pose condition ####
         pixel_transforms = transforms.Compose([
-            # transforms.RandomHorizontalFlip(),
-            # transforms.Resize(sample_size[0]),
-            # transforms.CenterCrop(sample_size),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
         ])
         
-        pose_condition = torch.from_numpy(pose_condition.copy())[None,].to(device=device, dtype=latents.dtype).permute(0, 3, 1, 2) / 255.0
+        pose_condition = torch.from_numpy(pose_condition.copy()).to(device=device, dtype=latents.dtype).permute(0, 3, 1, 2) / 255.0
         # latent pose
         pose_condition = pixel_transforms(pose_condition)
-        
-        # print("pose_condition.device: ",pose_condition.device)
-        # print("poseguider.device: ",poseguider.device)
-        
-        latents_pose = poseguider(pose_condition)
-        # latents_pose = rearrange(latents_pose, "(b f) c h w -> b c f h w", f=video_length)
-        if do_classifier_free_guidance: latents_pose = latents_pose.repeat(2,1,1,1) # b c h w
-        
-        # latents_pose = rearrange(latents_pose, "(b f) c h w -> b c f h w", f=video_length)
+        latents_pose = poseguider(pose_condition) # might be thousands frame...but poseguider is light, if you OOM, modify it
+        latents_pose = rearrange(latents_pose, "(b f) c h w -> b c f h w", f=video_length)
         # if do_classifier_free_guidance: latents_pose = latents_pose.repeat(2,1,1,1,1)
         #### pose condition ####
         
-        for i, t in enumerate(timesteps):
-            # print("### ",i," : ",latents.size(),latents.min(),latents.max()," ###")
-            referencenet(
-                ref_image_latents.repeat(context_batch_size * (2 if do_classifier_free_guidance else 1), 1, 1, 1),
-                t,
-                encoder_hidden_states=image_embeddings,
-                return_dict=False,
-            )
-            reference_control_reader.update(reference_control_writer)
-
-            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t) + latents_pose
-            
-            noise_pred = self.unet(
-                latent_model_input, 
-                t, 
-                encoder_hidden_states=image_embeddings,
-                return_dict=False,
-            )[0]
-            
-            if do_classifier_free_guidance:
-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-            
-            latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
-            
-            reference_control_writer.clear()
-            reference_control_reader.clear()
+        context_scheduler = get_context_scheduler(context_schedule)
         
+        # Denoising loop
+        for i, t in tqdm(enumerate(timesteps), total=len(timesteps), disable=(rank!=0)):
+            if num_actual_inference_steps is not None and i < num_inference_steps - num_actual_inference_steps:
+                continue
+
+            noise_pred = torch.zeros(
+                (latents.shape[0] * (2 if do_classifier_free_guidance else 1), *latents.shape[1:]),
+                device=latents.device,
+                dtype=latents.dtype,
+            )
+            counter = torch.zeros(
+                (1, 1, latents.shape[2], 1, 1), device=latents.device, dtype=latents.dtype
+            )
+
+            if i == 0:
+                # just once
+                referencenet(
+                    ref_image_latents.repeat(context_batch_size * (2 if do_classifier_free_guidance else 1), 1, 1, 1),
+                    torch.zeros_like(t),
+                    encoder_hidden_states=image_embeddings,
+                    return_dict=False,
+                )
+                reference_control_reader.update(reference_control_writer)
+            
+            
+            context_queue = list(context_scheduler(
+                0, num_inference_steps, latents.shape[2], context_frames, context_stride, 0
+            ))
+            num_context_batches = math.ceil(len(context_queue) / context_batch_size)
+
+            context_queue = list(context_scheduler(
+                0, num_inference_steps, latents.shape[2], context_frames, context_stride, context_overlap
+            ))
+
+            num_context_batches = math.ceil(len(context_queue) / context_batch_size)
+            global_context = []
+            for i in range(num_context_batches):
+                global_context.append(context_queue[i*context_batch_size: (i+1)*context_batch_size])
+            # print(f"global_context:{global_context}")
+            
+
+            for context in global_context[rank::world_size]:
+                # expand the latents if we are doing classifier free guidance
+                latent_model_input = (
+                    torch.cat([latents[:, :, c] for c in context])
+                    .to(device)
+                    .repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1)
+                )
+
+                # print(f"context:{context}")
+                # print(f"latent_model_input.size():{latent_model_input.size()}")
+                
+                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+                b, c, f, h, w = latent_model_input.shape
+
+                latents_pose_input = torch.cat([latents_pose[:,:,c] for c in context]).repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1)
+
+                latent_model_input = latent_model_input + latents_pose_input
+
+                pred = self.unet(
+                    latent_model_input, 
+                    t, 
+                    encoder_hidden_states=image_embeddings[:b],
+                    latent_pose=latents_pose_input,
+                    return_dict=False,
+                )[0]
+
+                
+                pred_uc, pred_c = pred.chunk(2)
+                pred = torch.cat([pred_uc.unsqueeze(0), pred_c.unsqueeze(0)])
+                for j, c in enumerate(context):
+                    noise_pred[:, :, c] = noise_pred[:, :, c] + pred[:, j]
+                    counter[:, :, c] = counter[:, :, c] + 1
+                    
+            if is_dist_initialized:
+                noise_pred_gathered = [torch.zeros_like(noise_pred) for _ in range(world_size)]
+                if rank == 0:
+                    dist.gather(tensor=noise_pred, gather_list=noise_pred_gathered, dst=0)
+                else:
+                    dist.gather(tensor=noise_pred, gather_list=[], dst=0)
+                dist.barrier()
+
+                if rank == 0:
+                    for k in range(1, world_size):
+                        for context in global_context[k::world_size]:
+                            for j, c in enumerate(context):
+                                noise_pred[:, :, c] = noise_pred[:, :, c] + noise_pred_gathered[k][:, :, c] 
+                                counter[:, :, c] = counter[:, :, c] + 1
+
+            # perform guidance
+            if do_classifier_free_guidance:
+                noise_pred_uncond, noise_pred_text = (noise_pred / counter).chunk(2)
+                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+            # compute the previous noisy sample x_t -> x_t-1
+            latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
+            
+            if is_dist_initialized:
+                dist.broadcast(latents, 0)
+                dist.barrier()
+            
+        
+        interpolation_factor = 1
+        latents = self.interpolate_latents(latents, interpolation_factor, device)
+        # Post-processing
         video = self.decode_latents(latents, rank, decoder_consistency=decoder_consistency)
 
         if is_dist_initialized:

@@ -1,4 +1,3 @@
-from torch_snippets import *
 import os
 import math
 import wandb
@@ -27,7 +26,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import diffusers
 from diffusers import AutoencoderKL, DDIMScheduler
 from diffusers.models import UNet2DConditionModel
-from diffusers.pipelines import StableDiffusionPipeline
+# from diffusers.pipelines import StableDiffusionPipeline
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version
 from diffusers.utils.import_utils import is_xformers_available
@@ -45,32 +44,9 @@ from models.PoseGuider import PoseGuider
 from models.ReferenceNet import ReferenceNet
 from models.ReferenceNet_attention import ReferenceNetAttention
 
-def compute_snr(noise_scheduler, timesteps):
-    """
-    Computes SNR as per
-    https://github.com/TiankaiHang/Min-SNR-Diffusion-Training/blob/521b624bd70c67cee4bdf49225915f5945a872e3/guided_diffusion/gaussian_diffusion.py#L847-L849
-    """
-    alphas_cumprod = noise_scheduler.alphas_cumprod
-    sqrt_alphas_cumprod = alphas_cumprod**0.5
-    sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
+import pdb
 
-    # Expand the tensors.
-    # Adapted from https://github.com/TiankaiHang/Min-SNR-Diffusion-Training/blob/521b624bd70c67cee4bdf49225915f5945a872e3/guided_diffusion/gaussian_diffusion.py#L1026
-    sqrt_alphas_cumprod = sqrt_alphas_cumprod.to(device=timesteps.device)[timesteps].float()
-    while len(sqrt_alphas_cumprod.shape) < len(timesteps.shape):
-        sqrt_alphas_cumprod = sqrt_alphas_cumprod[..., None]
-    alpha = sqrt_alphas_cumprod.expand(timesteps.shape)
-
-    sqrt_one_minus_alphas_cumprod = sqrt_one_minus_alphas_cumprod.to(device=timesteps.device)[timesteps].float()
-    while len(sqrt_one_minus_alphas_cumprod.shape) < len(timesteps.shape):
-        sqrt_one_minus_alphas_cumprod = sqrt_one_minus_alphas_cumprod[..., None]
-    sigma = sqrt_one_minus_alphas_cumprod.expand(timesteps.shape)
-
-    # Compute SNR.
-    snr = (alpha / sigma) ** 2
-    return snr
-
-def init_dist(launcher="slurm", backend='nccl', port=29500, **kwargs):
+def init_dist(launcher="slurm", backend='nccl', port=28888, **kwargs):
     """Initializes distributed environment."""
     if launcher == 'pytorch':
         rank = int(os.environ['RANK'])
@@ -175,8 +151,6 @@ def main(
 
     global_seed: int = 42,
     is_debug: bool = False,
-    wandb_project: str = None,
-    snr_gamma: float = None
 ):
     check_min_version("0.21.4")
 
@@ -208,21 +182,7 @@ def main(
     )
 
     if is_main_process and (not is_debug) and use_wandb:
-        wandb.init(
-            project="animate anyone" if wandb_project is None else wandb_project,
-            config=config,
-            entity="yeshwanth",
-        )
-        run = wandb.init(
-            project="AnimateAnyone train stage 1"
-            if image_finetune
-            else "AnimateAnyone train stage 2",
-            name=folder_name,
-            config=config,
-        )
-    else:
-        print(f"{is_main_process=} {is_debug=} {use_wandb=}")
-        raise ValueError("Enable WandB using --wandb")
+        run = wandb.init(project="AnimateAnyone train stage 1", name=folder_name, config=config)
 
     # Handle the output folder creation
     if is_main_process:
@@ -238,22 +198,17 @@ def main(
     noise_scheduler = DDIMScheduler(**OmegaConf.to_container(noise_scheduler_kwargs))
 
     vae          = AutoencoderKL.from_pretrained(pretrained_model_path, subfolder="vae")
-    tokenizer    = CLIPTokenizer.from_pretrained(pretrained_model_path, subfolder="tokenizer")
-    text_encoder = CLIPTextModel.from_pretrained(pretrained_model_path, subfolder="text_encoder")
+    # tokenizer    = CLIPTokenizer.from_pretrained(pretrained_model_path, subfolder="tokenizer")
+    # text_encoder = CLIPTextModel.from_pretrained(pretrained_model_path, subfolder="text_encoder")
     clip_image_encoder = ReferenceEncoder(model_path=clip_model_path)
-    try:
-        poseguider = PoseGuider.from_pretrained(poseguider_checkpoint_path)
-    except Exception as e:
-        Warn(f'Failed to load pretrained weights from {poseguider_checkpoint_path}. Initializing with random weights')
-        poseguider = PoseGuider(noise_latent_channels=4)
-    
-    try:
-        referencenet = ReferenceNet.from_pretrained(referencenet_checkpoint_path)
-    except:
-        Warn(f'Failed to load pretrained weights from {referencenet_checkpoint_path}. Initializing with {pretrained_model_path} weights')
-        referencenet = ReferenceNet.from_pretrained(pretrained_model_path, subfolder="unet")
-    write_json(AD(referencenet.config).to_dict(), f'{output_dir}/referencenet.config.json')
-    
+    poseguider = PoseGuider(noise_latent_channels=4)
+    referencenet = ReferenceNet.from_pretrained(pretrained_model_path, subfolder="unet")
+    if not image_finetune:
+        poseguider_state_dict = torch.load(poseguider_checkpoint_path, map_location="cpu")
+        referencenet_state_dict = torch.load(referencenet_checkpoint_path, map_location="cpu")
+        poseguider.load_state_dict(poseguider_state_dict, strict=False)
+        referencenet.load_state_dict(referencenet_state_dict, strict=False)
+
     
 
     if not image_finetune:
@@ -263,7 +218,6 @@ def main(
         )
     else:
         unet = UNet2DConditionModel.from_pretrained(pretrained_model_path, subfolder="unet")
-    write_json(AD(unet.config).to_dict(), f'{output_dir}/referencenet.config.json')
         
     reference_control_writer = ReferenceNetAttention(referencenet, do_classifier_free_guidance=False, mode='write', fusion_blocks=fusion_blocks, is_image=image_finetune)
     reference_control_reader = ReferenceNetAttention(unet, do_classifier_free_guidance=False, mode='read', fusion_blocks=fusion_blocks, is_image=image_finetune)
@@ -282,7 +236,7 @@ def main(
         
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
-    text_encoder.requires_grad_(False)
+    # text_encoder.requires_grad_(False)
     clip_image_encoder.requires_grad_(False)
     
     # Set unet trainable parameters
@@ -291,6 +245,7 @@ def main(
     for name, param in unet.named_parameters():
         for trainable_module_name in trainable_modules:
             if trainable_module_name in name:
+                # print(trainable_module_name)
                 param.requires_grad = True
                 break
     
@@ -337,15 +292,15 @@ def main(
 
     # Move models to GPU
     vae.to(local_rank)
-    text_encoder.to(local_rank)
+    # text_encoder.to(local_rank)
     clip_image_encoder.to(local_rank)
     poseguider.to(local_rank)
     referencenet.to(local_rank)
 
     # Get the training dataset
     # train_dataset = WebVid10M(**train_data, is_image=image_finetune)
-    train_dataset = TikTok(**train_data, is_image=image_finetune)
-    # train_dataset = UBC_Fashion(**train_data, is_image=image_finetune)
+    # train_dataset = TikTok(**train_data, is_image=image_finetune)
+    train_dataset = UBC_Fashion(**train_data, is_image=image_finetune)
     
     distributed_sampler = DistributedSampler(
         train_dataset,
@@ -387,30 +342,25 @@ def main(
         num_training_steps=max_train_steps * gradient_accumulation_steps,
     )
 
-    # Validation pipeline
-    if not image_finetune:
-        validation_pipeline = None
-        # validation_pipeline = AnimationPipeline(
-        #     unet=unet, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler,
-        # ).to("cuda")
-        # raise NotImplementedError("Animation pipeline is still under construction")
-    else:
-        validation_pipeline = StableDiffusionPipeline.from_pretrained(
-            pretrained_model_path,
-            unet=unet, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler, safety_checker=None,
-        ).to(unet.device)
-    if validation_pipeline:
-        validation_pipeline.enable_vae_slicing()
+    # # Validation pipeline
+    # if not image_finetune:
+    #     validation_pipeline = AnimationPipeline(
+    #         unet=unet, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler,
+    #     ).to("cuda")
+    # else:
+    #     validation_pipeline = StableDiffusionPipeline.from_pretrained(
+    #         pretrained_model_path,
+    #         unet=unet, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler, safety_checker=None,
+    #     )
+    # validation_pipeline.enable_vae_slicing()
 
     # DDP warpper
     unet.to(local_rank)
-    # unet = DDP(unet, device_ids=[local_rank], output_device=local_rank)
-    vae.to(local_rank)
-    text_encoder.to(local_rank)
-    clip_image_encoder.to(local_rank)
-    poseguider.to(local_rank)
-    referencenet.to(local_rank)
-
+    unet = DDP(unet, device_ids=[local_rank], output_device=local_rank)
+    
+    if image_finetune:
+        poseguider = DDP(poseguider, device_ids=[local_rank], output_device=local_rank)
+        referencenet = DDP(referencenet, device_ids=[local_rank], output_device=local_rank)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / gradient_accumulation_steps)
@@ -438,23 +388,6 @@ def main(
     # Support mixed-precision training
     scaler = torch.cuda.amp.GradScaler() if mixed_precision_training else None
 
-    def sanity_check():
-        if cfg_random_null_text:
-            batch['text'] = [name if random.random() > cfg_random_null_text_ratio else "" for name in batch['text']]
-            
-        # Data batch sanity check
-        if epoch == first_epoch and step == 0:
-            pixel_values, texts = batch['pixel_values'].cpu(), batch['text']
-            if not image_finetune:
-                pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
-                for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
-                    pixel_value = pixel_value[None, ...]
-                    save_videos_grid(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.gif", rescale=True)
-            else:
-                for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
-                    pixel_value = pixel_value / 2. + 0.5
-                    torchvision.utils.save_image(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.png")
-
     for epoch in range(first_epoch, num_train_epochs):
         train_dataloader.sampler.set_epoch(epoch)
         unet.train()
@@ -463,7 +396,25 @@ def main(
         
         
         for step, batch in enumerate(train_dataloader):
+            # ToDo: add cfg_random_null_image to strength cfg
+            # if cfg_random_null_text:
+            #     batch['text'] = [name if random.random() > cfg_random_null_text_ratio else "" for name in batch['text']]
+                
+            # # Data batch sanity check
+            # if epoch == first_epoch and step == 0:
+            #     pixel_values, texts = batch['pixel_values'].cpu(), batch['text']
+            #     if not image_finetune:
+            #         pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
+            #         for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
+            #             pixel_value = pixel_value[None, ...]
+            #             save_videos_grid(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.gif", rescale=True)
+            #     else:
+            #         for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
+            #             pixel_value = pixel_value / 2. + 0.5
+            #             torchvision.utils.save_image(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.png")
+                    
             ### >>>> Training >>>> ###
+            
             # Convert videos to latent space            
             pixel_values = batch["pixel_values"].to(local_rank)
             pixel_values_pose = batch["pixel_values_pose"].to(local_rank)
@@ -542,19 +493,9 @@ def main(
                 reference_control_reader.update(reference_control_writer)
                 
                 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
-                if snr_gamma is None:
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-                else:
-                    snr = compute_snr(noise_scheduler, timesteps)
-                    if noise_scheduler.config.prediction_type == "v_prediction":
-                        snr = snr + 1
-                    mse_loss_weights = (
-                        torch.stack([snr, snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
-                    )
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-                    loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
-                    loss = loss.mean()
-
+                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                
+                
             optimizer.zero_grad()
 
             # Backpropagate
@@ -593,174 +534,109 @@ def main(
             global_step += 1
             
             ### <<<< Training <<<< ###
-
+            
             # Wandb logging
             if is_main_process and (not is_debug) and use_wandb:
-                wandb.log(
-                    {
-                        "train_loss": loss.detach().item(),
-                        "lr": lr_scheduler.get_last_lr()[0],
-                    },
-                    step=global_step,
-                )
+                wandb.log({"train_loss": loss.item()}, step=global_step)
+                
             # Save checkpoint
-            if is_main_process and (
-                global_step % checkpointing_steps == 0
-                or step == len(train_dataloader) - 1
-            ):
+            # if is_main_process and (global_step % checkpointing_steps == 0 or step == len(train_dataloader) - 1):
+            if is_main_process and global_step % checkpointing_steps == 0 :
                 save_path = os.path.join(output_dir, f"checkpoints")
-                state_dict = {
-                    "epoch": epoch,
-                    "global_step": global_step,
-                    "poseguider_state_dict": poseguider.state_dict(),
-                    "referencenet_state_dict": referencenet.state_dict(),
-                }
-                if not image_finetune:
-                    state_dict["unet"] = unet.state_dict()
+                try:
+                    state_dict = {
+                        "epoch": epoch,
+                        "global_step": global_step,
+                        "unet_state_dict": unet.module.state_dict(),
+                        "poseguider_state_dict": poseguider.module.state_dict(),
+                        "referencenet_state_dict": referencenet.module.state_dict(),
+                        
+                    }
+                except:
+                    state_dict = {
+                        "epoch": epoch,
+                        "global_step": global_step,
+                        "unet_state_dict": unet.module.state_dict(),
+                        "poseguider_state_dict": poseguider.state_dict(),
+                        "referencenet_state_dict": referencenet.state_dict(),
+                        
+                    }
                 if step == len(train_dataloader) - 1:
-                    torch.save(
-                        state_dict,
-                        os.path.join(save_path, f"checkpoint-epoch-{epoch+1}.ckpt"),
-                    )
-                    # remove the old checkpoint
-                    try: os.remove(os.path.join(save_path, f'checkpoint-epoch-{epoch}.ckpt'))
-                    except FileNotFoundError: pass
+                    torch.save(state_dict, os.path.join(save_path, f"checkpoint-epoch-{epoch+1}.ckpt"))
                 else:
                     torch.save(state_dict, os.path.join(save_path, f"checkpoint-global_step-{global_step}.ckpt"))
                 logging.info(f"Saved state to {save_path} (global_step: {global_step})")
+                
+            # # Periodically validation
+            # if is_main_process and (global_step % validation_steps == 0 or global_step in validation_steps_tuple):
+            #     samples = []
+                
+            #     generator = torch.Generator(device=latents.device)
+            #     generator.manual_seed(global_seed)
+                
+            #     height = train_data.sample_size[0] if not isinstance(train_data.sample_size, int) else train_data.sample_size
+            #     width  = train_data.sample_size[1] if not isinstance(train_data.sample_size, int) else train_data.sample_size
 
-            # Periodically validation
-            if is_main_process and (
-                global_step % validation_steps == 0
-                or global_step in validation_steps_tuple
-            ):
-                samples = []
+            #     prompts = validation_data.prompts[:2] if global_step < 1000 and (not image_finetune) else validation_data.prompts
 
-                generator = torch.Generator(device=latents.device)
-                generator.manual_seed(global_seed)
+            #     for idx, prompt in enumerate(prompts):
+            #         if not image_finetune:
+            #             sample = validation_pipeline(
+            #                 prompt,
+            #                 generator    = generator,
+            #                 video_length = train_data.sample_n_frames,
+            #                 height       = height,
+            #                 width        = width,
+            #                 **validation_data,
+            #             ).videos
+            #             save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
+            #             samples.append(sample)
+                        
+            #         else:
+            #             sample = validation_pipeline(
+            #                 prompt,
+            #                 generator           = generator,
+            #                 height              = height,
+            #                 width               = width,
+            #                 num_inference_steps = validation_data.get("num_inference_steps", 25),
+            #                 guidance_scale      = validation_data.get("guidance_scale", 8.),
+            #             ).images[0]
+            #             sample = torchvision.transforms.functional.to_tensor(sample)
+            #             samples.append(sample)
+                
+                # if not image_finetune:
+                #     samples = torch.concat(samples)
+                #     save_path = f"{output_dir}/samples/sample-{global_step}.gif"
+                #     save_videos_grid(samples, save_path)
+                    
+                # else:
+                #     samples = torch.stack(samples)
+                #     save_path = f"{output_dir}/samples/sample-{global_step}.png"
+                #     torchvision.utils.save_image(samples, save_path, nrow=4)
 
-                height = (
-                    train_data.sample_size[0]
-                    if not isinstance(train_data.sample_size, int)
-                    else train_data.sample_size
-                )
-                width = (
-                    train_data.sample_size[1]
-                    if not isinstance(train_data.sample_size, int)
-                    else train_data.sample_size
-                )
-
-                prompts = (
-                    validation_data.prompts[:2]
-                    if global_step < 1000 and (not image_finetune)
-                    else validation_data.prompts
-                )
-
-                for idx, prompt in enumerate(prompts):
-                    if not image_finetune:
-                        if validation_pipeline is not None:
-                            sample = validation_pipeline(
-                                prompt,
-                                generator=generator,
-                                video_length=train_data.sample_n_frames,
-                                height=height,
-                                width=width,
-                                **validation_data,
-                            ).videos
-                            save_videos_grid(
-                                sample,
-                                f"{output_dir}/samples/sample-{global_step}/{idx}.gif",
-                            )
-                            samples.append(sample)
-
-                    else:
-                        sample = validation_pipeline(
-                            prompt,
-                            generator=generator,
-                            height=height,
-                            width=width,
-                            num_inference_steps=validation_data.get(
-                                "num_inference_steps", 25
-                            ),
-                            guidance_scale=validation_data.get("guidance_scale", 8.0),
-                        ).images[0]
-                        sample = torchvision.transforms.functional.to_tensor(sample)
-                        samples.append(sample)
-
-                if not image_finetune:
-                    if validation_pipeline is not None:
-                        samples = torch.concat(samples)
-                        save_path = f"{output_dir}/samples/sample-{global_step}.gif"
-                        save_videos_grid(samples, save_path)
-                        if use_wandb:
-                            wandb.log(
-                                {f"video_{global_step}": [wandb.Video(save_path)]},
-                                step=global_step,
-                            )
-
-                else:
-                    samples = torch.stack(samples)
-                    save_path = f"{output_dir}/samples/sample-{global_step}.png"
-                    torchvision.utils.save_image(samples, save_path, nrow=4)
-                    if use_wandb:
-                        wandb.log(
-                            {
-                                f"images_{global_step}": [
-                                    wandb.Image(
-                                        save_path, caption="=====\n=====".join(prompts)
-                                    )
-                                ]
-                            },
-                            step=global_step,
-                        )
-
-                    logging.info(f"Saved samples to {save_path}")
-
-            logs = {
-                "step_loss": loss.detach().item(),
-                "lr": lr_scheduler.get_last_lr()[0],
-            }
+                # logging.info(f"Saved samples to {save_path}")
+                
+            logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
-
+            
             if global_step >= max_train_steps:
                 break
-
+            
     dist.destroy_process_group()
 
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=True)
-    parser.add_argument(
-        "--launcher", type=str, choices=["pytorch", "slurm"], default="pytorch"
-    )
-    parser.add_argument("--wandb", action="store_true")
-    parser.add_argument("--wandb_project", type=str)
-    args, unknown_args = parser.parse_known_args()
+    parser.add_argument("--config",   type=str, required=True)
+    parser.add_argument("--launcher", type=str, choices=["pytorch", "slurm"], default="pytorch")
+    parser.add_argument("--wandb",    action="store_true")
+    args = parser.parse_args()
 
-    # Load the original config file
+    name   = Path(args.config).stem
     config = OmegaConf.load(args.config)
 
-    # Update the config dictionary with any additional CLI arguments
-    for arg in unknown_args:
-        key, value = arg.split('=')
-        for dtype in [int, float, str]:
-            try:
-                config[key.strip('--')] = dtype(value)
-                break  # Break the loop if conversion is successful
-            except ValueError:
-                pass  # Continue to the next data type if conversion fails
-
-    name = Path(args.config).stem
-
-    main(
-        name=name,
-        launcher=args.launcher,
-        use_wandb=args.wandb,
-        wandb_project=args.wandb_project,
-        **config,
-    )
+    main(name=name, launcher=args.launcher, use_wandb=args.wandb, **config)
     
 
     # CUDA_VISIBLE_DEVICES=1 torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_oneshot.yaml
@@ -769,6 +645,3 @@ if __name__ == "__main__":
     # CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun --nnodes=1 --nproc_per_node=4 --master_port 28887 train.py --config configs/training/train_stage_1.yaml
 
     # CUDA_VISIBLE_DEVICES=7 torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_2.yaml
-
-    # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_v6.yaml --wandb --wandb_project=dummy
-    # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_v6.yaml

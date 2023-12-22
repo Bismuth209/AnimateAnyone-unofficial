@@ -6,12 +6,11 @@ csv_path = 'TikTok_info.csv'
 
 dataset_folder = '../../UBC_dataset'
 
-root = "/home/ubuntu/data/ubc_fasion/"
-# dataset_folder = f'{root}/train'
-# csv_path = f'{root}UBC_train_info.csv'
+dataset_folder = '../../UBC_dataset/train'
+csv_path = 'UBC_train_info.csv'
 
-dataset_folder = f'{root}/test'
-csv_path = f'{root}/UBC_test_info.csv'
+dataset_folder = '../../UBC_dataset/test'
+csv_path = 'UBC_test_info.csv'
 
 with open(csv_path, 'w', newline='') as csvfile:
     fieldnames = ['folder_id', 'folder_name']

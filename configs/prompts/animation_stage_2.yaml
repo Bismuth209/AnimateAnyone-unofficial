@@ -1,7 +1,8 @@
 pretrained_model_path: "./pretrained_models/stable-diffusion-v1-5"
-pretrained_vae_path: "./pretrained_models/sd-vae-ft-mse"
-pretrained_unet_path: "./pretrained_models/unet_stage_1.ckpt"
 pretrained_clip_path: "./pretrained_models/clip-vit-base-patch32"
+
+pretrained_motion_unet_path: "./pretrained_models/motion_unet"
+specific_motion_unet_model: "sd15_mmv1.ckpt"
 
 pretrained_poseguider_path: "./pretrained_models/poseguider_stage_1.ckpt"
 pretrained_referencenet_path: "./pretrained_models/referencenet_stage_1.ckpt"
@@ -34,5 +35,3 @@ max_length: null
 video_type: "condition"
 invert_video: false
 save_individual_videos: false
-
-

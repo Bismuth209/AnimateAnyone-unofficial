@@ -4,8 +4,8 @@ output_dir: "outputs"
 pretrained_model_path: "checkpoints/stable-diffusion-v1-5"
 clip_model_path: "checkpoints/clip-vit-base-patch32"
 pretrained_clip_path: "checkpoints/stable-diffusion-v1-5"
-pretrained_poseguider_path: "outputs/train_stage_1_UBC_micro-2023-12-20T12-16-51/checkpoints/checkpoint-epoch-500.ckpt" # weights deleted
-pretrained_referencenet_path: "outputs/train_stage_1_UBC_micro-2023-12-20T12-16-51/checkpoints/checkpoint-epoch-500.ckpt" # weights deleted
+pretrained_poseguider_path: "outputs.bak/train_stage_1_UBC_micro_v2_longer-2023-12-20T14-14-33/checkpoints/checkpoint-epoch-5000.ckpt"
+pretrained_referencenet_path: "outputs.bak/train_stage_1_UBC_micro_v2_longer-2023-12-20T14-14-33/checkpoints/checkpoint-epoch-5000.ckpt"
 
 inference_config: "/"
 noise_scheduler_kwargs:
@@ -71,8 +71,6 @@ enable_xformers_memory_efficient_attention: True
 is_debug: False
 
 observations: >
-  Trained on 500 epochs with only 12 videos hoping to overfit
-  Model did not overfit at all and the outputs are blurry and weird
-  see /home/ubuntu/code/AnimateAnyone-unofficial/backups/stage-1/stage-1__0000.html for outputsa
+  Trained on 5000 epochs with only 12 videos hoping to overfit
 
-train_yaml: configs/training/train_stage_1_UBC_micro.yaml
+train_yaml: configs/training/train_stage_1_UBC_micro_v2_longer.yaml

@@ -722,6 +722,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         # print("pose_condition.device: ",pose_condition.device)
         # print("poseguider.device: ",poseguider.device)
         
+        
         latents_pose = poseguider(pose_condition)
         # latents_pose = rearrange(latents_pose, "(b f) c h w -> b c f h w", f=video_length)
         if do_classifier_free_guidance: latents_pose = latents_pose.repeat(2,1,1,1) # b c h w

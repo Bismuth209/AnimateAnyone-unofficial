@@ -4,15 +4,24 @@ import inspect
 import os
 import random
 import numpy as np
-
 from PIL import Image
 from omegaconf import OmegaConf
 from collections import OrderedDict
-
 import torch
 import torch.distributed as dist
-from utils.load_models import load_models_stage_2
+from diffusers import AutoencoderKL, DDIMScheduler
+from tqdm import tqdm
+from transformers import CLIPTextModel, CLIPTokenizer, CLIPProcessor
 
+from models.PoseGuider import PoseGuider
+from models.ReferenceEncoder import ReferenceEncoder
+from models.ReferenceNet import ReferenceNet
+from models.ReferenceNet_attention import ReferenceNetAttention
+
+from models.PoseGuider import PoseGuider
+from models.unet import UNet3DConditionModel
+# from models.hack_unet3d import Hack_UNet3DConditionModel as UNet3DConditionModel
+from pipelines.pipeline_stage_2 import AnimationAnyonePipeline
 
 from utils.util import save_videos_grid
 from utils.dist_tools import distributed_init
@@ -25,14 +34,72 @@ from pathlib import Path
 from decord import VideoReader as decord_VideoReader
 import cv2
 import pdb
-from utils.load_models import 
 
 
 def main(args):
-    models_bunch = load_models_stage_2(args)
+
+    *_, func_args = inspect.getargvalues(inspect.currentframe())
+    func_args = dict(func_args)
     
-    # exit(0)
+    config  = OmegaConf.load(args.config)
+      
+    # Initialize distributed training
+    device = torch.device(f"cuda:{args.rank}")
+    dist_kwargs = {"rank":args.rank, "world_size":args.world_size, "dist":args.dist}
     
+    if config.savename is None:
+        time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        savedir = f"samples/{Path(args.config).stem}-{time_str}"
+    else:
+        savedir = f"samples/{config.savename}"
+        
+    if args.dist:
+        dist.broadcast_object_list([savedir], 0)
+        dist.barrier()
+    
+    if args.rank == 0:
+        os.makedirs(savedir, exist_ok=True)
+
+    inference_config = OmegaConf.load(config.inference_config)
+        
+    # motion_module = config.motion_module
+    
+    ### >>> create animation pipeline >>> ###
+    tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_clip_path)
+    text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path)
+    
+    
+    unet = UNet3DConditionModel.from_pretrained_2d(config.pretrained_motion_unet_path, subfolder=None, unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs), specific_model=config.specific_motion_unet_model)
+    vae = AutoencoderKL.from_pretrained(config.pretrained_model_path, subfolder="vae")
+    poseguider = PoseGuider.from_pretrained(pretrained_model_path=config.pretrained_poseguider_path)
+    poseguider.eval()
+    clip_image_encoder = ReferenceEncoder(model_path=config.pretrained_clip_path)
+    clip_image_processor = CLIPProcessor.from_pretrained(config.pretrained_clip_path,local_files_only=True)
+    referencenet = ReferenceNet.load_referencenet(pretrained_model_path=config.pretrained_referencenet_path)
+    reference_control_writer = None
+    reference_control_reader = None
+    
+    
+
+    # unet.enable_xformers_memory_efficient_attention()
+    # referencenet.enable_xformers_memory_efficient_attention()
+
+    vae.to(torch.float32)
+    unet.to(torch.float32)
+    text_encoder.to(torch.float32)
+    referencenet.to(torch.float32)
+    poseguider.to(torch.float32)
+    clip_image_encoder.to(torch.float32)
+    
+    pipeline = AnimationAnyonePipeline(
+        vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, unet=unet,
+        scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
+    )
+
+    clip_image_encoder.to(torch.float32).to(device)
+    referencenet.to(device)
+    poseguider.to(device)
+    pipeline.to(device)
     ### <<< create validation pipeline <<< ###
     
     random_seeds = config.get("seed", [-1])
@@ -50,7 +117,7 @@ def main(args):
     steps = [config.S] * len(test_videos)
 
     config.random_seed = []
-    prompt = n_prompt = "none"
+    prompt = n_prompt = ""
     for idx, (source_image, test_video, random_seed, size, step) in tqdm(
         enumerate(zip(source_images, test_videos, random_seeds, sizes, steps)), 
         total=len(test_videos), 
@@ -80,21 +147,16 @@ def main(args):
             source_image = np.array(Image.open(source_image).resize((size, size)))
         H, W, C = source_image.shape
         
-        
         print(f"current seed: {torch.initial_seed()}")
         init_latents = None
         
         # print(f"sampling {prompt} ...")
-        # 满足16的整数倍
         original_length = control.shape[0]
         if control.shape[0] % config.L > 0:
             control = np.pad(control, ((0, config.L-control.shape[0] % config.L), (0, 0), (0, 0), (0, 0)), mode='edge')
-        
-        idx_control = random.randint(0,control.shape[0]-1)
-        control = control[idx_control] # (256, 256, 3)
-        
         generator = torch.Generator(device=torch.device("cuda:0"))
         generator.manual_seed(torch.initial_seed())
+        
         sample = pipeline(
             prompt,
             negative_prompt         = n_prompt,
@@ -117,44 +179,24 @@ def main(args):
             **dist_kwargs,
         ).videos
 
-        
-        # print(sample.shape) # torch.Size([1, 256, 256, 3])
-        
-        
-        modify_original_length = 1
-        
         if args.rank == 0:
-            source_images = np.array([source_image] * modify_original_length)
+            source_images = np.array([source_image] * original_length)
             source_images = rearrange(torch.from_numpy(source_images), "t h w c -> 1 c t h w") / 255.0
             samples_per_video.append(source_images)
             
             control = control / 255.0
-            # control = rearrange(control, "t h w c -> 1 c t h w")
-            control = rearrange(control, "h w c -> 1 c 1 h w")
+            control = rearrange(control, "t h w c -> 1 c t h w")
             control = torch.from_numpy(control)
-            
-            # add
-            sample = rearrange(sample,"1 h w c -> 1 c 1 h w")
-            
-            # pdb.set_trace()
-            
-            
-            samples_per_video.append(control[:, :, :modify_original_length])
+            samples_per_video.append(control[:, :, :original_length])
 
-            samples_per_video.append(sample[:, :, :modify_original_length])
-            
-            # print(samples_per_video.size())
-            
+            samples_per_video.append(sample[:, :, :original_length])
+                
             samples_per_video = torch.cat(samples_per_video)
 
             video_name = os.path.basename(test_video)[:-4]
             source_name = os.path.basename(config.source_image[idx]).split(".")[0]
-            # save_videos_grid(samples_per_video[-1:], f"{savedir}/videos/{source_name}_{video_name}.mp4")
-            save_videos_grid(samples_per_video, f"{savedir}/videos/{source_name}_{video_name}/grid.mp4",fps=1)
-            
-            vr = decord_VideoReader(f"{savedir}/videos/{source_name}_{video_name}/grid.mp4")
-            frame = vr[0].asnumpy()
-            cv2.imwrite(f"{savedir}/videos/{source_name}_{video_name}/grid.png", cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            save_videos_grid(samples_per_video[-1:], f"{savedir}/videos/{source_name}_{video_name}.mp4")
+            save_videos_grid(samples_per_video, f"{savedir}/videos/{source_name}_{video_name}/grid.mp4")
 
             if config.save_individual_videos:
                 save_videos_grid(samples_per_video[1:2], f"{savedir}/videos/{source_name}_{video_name}/ctrl.mp4")
@@ -162,7 +204,8 @@ def main(args):
                 
         if args.dist:
             dist.barrier()
-               
+
+            
     if args.rank == 0:
         OmegaConf.save(config, f"{savedir}/config.yaml")
 
@@ -204,5 +247,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     run(args)
-    
-    # python3 -m pipelines.animation_stage_1 --config configs/prompts/animation_stage_1.yaml
+
+    # python3 -m pipelines.animation_stage_2 --config configs/prompts/animation_stage_2.yaml
+    # python3 -m pipelines.animation_stage_2 --config configs/prompts/my_animation_stage_2_202312211801.yaml

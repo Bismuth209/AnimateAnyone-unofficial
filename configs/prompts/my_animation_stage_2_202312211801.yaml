@@ -1,0 +1,36 @@
+pretrained_model_path: "./pretrained_models/stable-diffusion-v1-5"
+pretrained_clip_path: "./pretrained_models/clip-vit-base-patch32"
+
+pretrained_motion_unet_path: "./checkpoints/train_stage_2_UBC_micro_v2_longer-2023-12-21T10-46-28/"
+specific_motion_unet_model: "unet_stage_2.ckpt"
+
+pretrained_poseguider_path: "checkpoints/train_stage_2_UBC_micro_v2_longer-2023-12-21T10-46-28/poseguider_stage_2.ckpt"
+pretrained_referencenet_path: "checkpoints/train_stage_2_UBC_micro_v2_longer-2023-12-21T10-46-28/referencenet_stage_2.ckpt"
+
+savename: null
+
+fusion_blocks: "full"
+
+
+seed:           [42]
+steps:          25
+guidance_scale: 7.5
+# guidance_scale: 0
+
+source_image:
+  - "/home/ubuntu/data/ubc_fashion/train/81FyMPk-WIS.mp4"
+video_path:
+  - "/home/ubuntu/data/ubc_fashion/train_dwpose/91+lbQkcx5S.mp4"
+
+
+inference_config: "configs/inference/inference.yaml"
+size: 512
+L:    16
+S:    1 
+I:    0
+clip: 0
+offset: 0
+max_length: null
+video_type: "condition"
+invert_video: false
+save_individual_videos: false

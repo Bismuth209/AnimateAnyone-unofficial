@@ -38,7 +38,8 @@ from decord import VideoReader as decord_VideoReader
 import cv2
 import pdb
 
-def load_models(args):
+def main(args):
+
     *_, func_args = inspect.getargvalues(inspect.currentframe())
     func_args = dict(func_args)
     
@@ -48,7 +49,7 @@ def load_models(args):
     device = torch.device(f"cuda:{args.rank}")
     dist_kwargs = {"rank":args.rank, "world_size":args.world_size, "dist":args.dist}
     
-    if 'savename' not in config or config.savename is None:
+    if config.savename is None:
         time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         savedir = f"samples/{Path(args.config).stem}-{time_str}"
     else:
@@ -60,26 +61,33 @@ def load_models(args):
     
     if args.rank == 0:
         os.makedirs(savedir, exist_ok=True)
+
+    inference_config = OmegaConf.load(config.inference_config)
         
     ### >>> create animation pipeline >>> ###
-    tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_model_path, subfolder="tokenizer")
-    # tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_clip_path)
+    # tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_clip_path, subfolder="tokenizer")
+    tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_clip_path)
     
-    text_encoder = CLIPTextModel.from_pretrained(config.pretrained_model_path, subfolder="text_encoder")
-    # text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path)
+    # text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path, subfolder="text_encoder")
+    text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path)
     
-    unet = UNet2DConditionModel.from_pretrained(config.pretrained_model_path, subfolder="unet")
+    if config.pretrained_unet_path is not None:
+        unet_config = UNet2DConditionModel.load_config(config.pretrained_model_path, subfolder="unet")
+        unet = UNet2DConditionModel.from_config(unet_config)
+        unet_state_dict = torch.load(config.pretrained_unet_path, map_location="cpu")
+        unet.load_state_dict(unet_state_dict, strict=False)
+    else:
+        unet = UNet2DConditionModel.from_pretrained(config.pretrained_model_path, subfolder="unet")
+
     vae = AutoencoderKL.from_pretrained(config.pretrained_model_path, subfolder="vae")
     
-    print(config.pretrained_poseguider_path) # /mnt/f/research/HumanVideo/AnimateAnyone-unofficial/poseguider_test_v0.ckpt
     poseguider = PoseGuider.from_pretrained(pretrained_model_path=config.pretrained_poseguider_path)
-    clip_image_encoder = ReferenceEncoder(model_path=config.clip_model_path)
-    clip_image_processor = CLIPProcessor.from_pretrained(config.clip_model_path,local_files_only=True)
+    poseguider.eval()
+    clip_image_encoder = ReferenceEncoder(model_path=config.pretrained_clip_path)
+    clip_image_processor = CLIPProcessor.from_pretrained(config.pretrained_clip_path,local_files_only=True)
     
     referencenet = ReferenceNet.load_referencenet(pretrained_model_path=config.pretrained_referencenet_path)
     
-    # reference_control_writer = ReferenceNetAttention(referencenet, do_classifier_free_guidance=True, mode='write', fusion_blocks=config.fusion_blocks)
-    # reference_control_reader = ReferenceNetAttention(unet, do_classifier_free_guidance=True, mode='read', fusion_blocks=config.fusion_blocks)
     reference_control_writer = None
     reference_control_reader = None
     
@@ -96,15 +104,10 @@ def load_models(args):
     
     pipeline = AnimationAnyonePipeline(
         vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, unet=unet,
-        scheduler=DDIMScheduler(**OmegaConf.to_container(config.noise_scheduler_kwargs)),
+        scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
         # NOTE: UniPCMultistepScheduler
     )
-    return pipeline, config, device, reference_control_writer, reference_control_reader, referencenet, poseguider, clip_image_processor, clip_image_encoder, dist_kwargs, savedir
 
-def main(args):
-    from torch_snippets import dumpdill
-    dumpdill(args, '/tmp/tmp.args')
-    pipeline, config, device, reference_control_writer, reference_control_reader, referencenet, poseguider, clip_image_processor, clip_image_encoder, dist_kwargs, savedir = load_models(args)
     pipeline.to(device)
     
     # exit(0)
@@ -171,6 +174,25 @@ def main(args):
         
         generator = torch.Generator(device=torch.device("cuda:0"))
         generator.manual_seed(torch.initial_seed())
+        # sample = pipeline(
+        #     prompt,
+        #     negative_prompt         = n_prompt,
+        #     num_inference_steps     = config.steps,
+        #     guidance_scale          = config.guidance_scale,
+        #     width                   = W,
+        #     height                  = H,
+        #     video_length            = len(control),
+        #     controlnet_condition    = control,
+        #     init_latents            = init_latents,
+        #     generator               = generator,
+        #     num_actual_inference_steps = num_actual_inference_steps,
+        #     appearance_encoder       = appearance_encoder, 
+        #     reference_control_writer = reference_control_writer,
+        #     reference_control_reader = reference_control_reader,
+        #     source_image             = source_image,
+        #     **dist_kwargs,
+        # ).videos
+        
         sample = pipeline(
             prompt,
             negative_prompt         = n_prompt,
@@ -211,9 +233,12 @@ def main(args):
             
             # add
             sample = rearrange(sample,"1 h w c -> 1 c 1 h w")
+            
             # pdb.set_trace()
             
+            
             samples_per_video.append(control[:, :, :modify_original_length])
+
             samples_per_video.append(sample[:, :, :modify_original_length])
             
             # print(samples_per_video.size())
@@ -279,3 +304,4 @@ if __name__ == "__main__":
     run(args)
     
     # python3 -m pipelines.animation_stage_1 --config configs/prompts/animation_stage_1.yaml
+    # CUDA_VISIBLE_DEVICES=3 python3 -m pipelines.animation_stage_1 --config configs/prompts/animation_stage_1.yaml

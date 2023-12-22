@@ -37,13 +37,13 @@ unet_additional_kwargs:
 
 train_data:
   # csv_path:     "./data/UBC_train_info_test.csv"
-  csv_path:     "./data/UBC_train_info.csv"
-  video_folder: "./UBC_dataset"
+  csv_path:     "/home/ubuntu/data/ubc_fashion/UBC_train_micro_info.csv"
+  video_folder: "/home/ubuntu/data/ubc_fashion/"
   sample_size:  512 # for 40G 256
   sample_stride: 4
   sample_n_frames: 16
   clip_model_path: "./pretrained_models/clip-vit-base-patch32"
-
+num_workers: 0
 
 validation_data:
   prompts:
@@ -66,9 +66,9 @@ learning_rate:    1.e-5
 train_batch_size: 4
 
 max_train_epoch:      -1
-max_train_steps:      60000
+max_train_steps:      5000
 checkpointing_epochs: -1
-checkpointing_steps:  5000
+checkpointing_steps:  500
 gradient_accumulation_steps: 1
 
 

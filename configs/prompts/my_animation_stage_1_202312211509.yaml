@@ -1,10 +1,10 @@
 pretrained_model_path: "./pretrained_models/stable-diffusion-v1-5"
 pretrained_vae_path: "./pretrained_models/sd-vae-ft-mse"
-pretrained_unet_path: "./pretrained_models/unet_stage_1.ckpt"
+pretrained_unet_path: "./checkpoints/train_stage_1_UBC_micro_v2_longer-2023-12-20T14-14-33/unet_stage_1.ckpt"
 pretrained_clip_path: "./pretrained_models/clip-vit-base-patch32"
 
-pretrained_poseguider_path: "./pretrained_models/poseguider_stage_1.ckpt"
-pretrained_referencenet_path: "./pretrained_models/referencenet_stage_1.ckpt"
+pretrained_poseguider_path: "./checkpoints/train_stage_1_UBC_micro_v2_longer-2023-12-20T14-14-33/poseguider_stage_1.ckpt"
+pretrained_referencenet_path: "./checkpoints/train_stage_1_UBC_micro_v2_longer-2023-12-20T14-14-33/referencenet_stage_1.ckpt"
 
 
 savename: null
@@ -18,9 +18,9 @@ guidance_scale: 7.5
 # guidance_scale: 0
 
 source_image:
-  - "inputs/applications/source_image/81FyMPk-WIS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/train/81FyMPk-WIS.mp4"
 video_path:
-  - "inputs/applications/driving/dwpose/81FyMPk-WIS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/train_dwpose/91+lbQkcx5S.mp4"
 
 
 inference_config: "configs/inference/inference.yaml"
