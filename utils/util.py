@@ -1,7 +1,7 @@
 # *************************************************************************
 # This file may have been modified by Bytedance Inc. (“Bytedance Inc.'s Mo-
 # difications”). All Bytedance Inc.'s Modifications are Copyright (2023) B-
-# ytedance Inc..  
+# ytedance Inc..
 # *************************************************************************
 
 # Adapted from https://github.com/guoyww/AnimateDiff
@@ -20,7 +20,9 @@ import torch.distributed as dist
 
 
 def zero_rank_print(s):
-    if (not dist.is_initialized()) and (dist.is_initialized() and dist.get_rank() == 0): print("### " + s)
+    if (not dist.is_initialized()) and (dist.is_initialized() and dist.get_rank() == 0):
+        print("### " + s)
+
 
 def save_videos_grid(videos: torch.Tensor, path: str, rescale=False, n_rows=6, fps=25):
     videos = rearrange(videos, "b c t h w -> t b c h w")
@@ -36,22 +38,28 @@ def save_videos_grid(videos: torch.Tensor, path: str, rescale=False, n_rows=6, f
     os.makedirs(os.path.dirname(path), exist_ok=True)
     imageio.mimsave(path, outputs, fps=fps)
 
+
 def save_images_grid(images: torch.Tensor, path: str):
-    assert images.shape[2] == 1 # no time dimension
+    assert images.shape[2] == 1  # no time dimension
     images = images.squeeze(2)
     grid = torchvision.utils.make_grid(images)
     grid = (grid * 255).numpy().transpose(1, 2, 0).astype(np.uint8)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     Image.fromarray(grid).save(path)
 
+
 # DDIM Inversion
 @torch.no_grad()
 def init_prompt(prompt, pipeline):
     uncond_input = pipeline.tokenizer(
-        [""], padding="max_length", max_length=pipeline.tokenizer.model_max_length,
-        return_tensors="pt"
+        [""],
+        padding="max_length",
+        max_length=pipeline.tokenizer.model_max_length,
+        return_tensors="pt",
     )
-    uncond_embeddings = pipeline.text_encoder(uncond_input.input_ids.to(pipeline.device))[0]
+    uncond_embeddings = pipeline.text_encoder(
+        uncond_input.input_ids.to(pipeline.device)
+    )[0]
     text_input = pipeline.tokenizer(
         [prompt],
         padding="max_length",
@@ -65,16 +73,35 @@ def init_prompt(prompt, pipeline):
     return context
 
 
-def next_step(model_output: Union[torch.FloatTensor, np.ndarray], timestep: int,
-              sample: Union[torch.FloatTensor, np.ndarray], ddim_scheduler):
-    timestep, next_timestep = min(
-        timestep - ddim_scheduler.config.num_train_timesteps // ddim_scheduler.num_inference_steps, 999), timestep
-    alpha_prod_t = ddim_scheduler.alphas_cumprod[timestep] if timestep >= 0 else ddim_scheduler.final_alpha_cumprod
+def next_step(
+    model_output: Union[torch.FloatTensor, np.ndarray],
+    timestep: int,
+    sample: Union[torch.FloatTensor, np.ndarray],
+    ddim_scheduler,
+):
+    timestep, next_timestep = (
+        min(
+            timestep
+            - ddim_scheduler.config.num_train_timesteps
+            // ddim_scheduler.num_inference_steps,
+            999,
+        ),
+        timestep,
+    )
+    alpha_prod_t = (
+        ddim_scheduler.alphas_cumprod[timestep]
+        if timestep >= 0
+        else ddim_scheduler.final_alpha_cumprod
+    )
     alpha_prod_t_next = ddim_scheduler.alphas_cumprod[next_timestep]
     beta_prod_t = 1 - alpha_prod_t
-    next_original_sample = (sample - beta_prod_t ** 0.5 * model_output) / alpha_prod_t ** 0.5
+    next_original_sample = (
+        sample - beta_prod_t**0.5 * model_output
+    ) / alpha_prod_t**0.5
     next_sample_direction = (1 - alpha_prod_t_next) ** 0.5 * model_output
-    next_sample = alpha_prod_t_next ** 0.5 * next_original_sample + next_sample_direction
+    next_sample = (
+        alpha_prod_t_next**0.5 * next_original_sample + next_sample_direction
+    )
     return next_sample
 
 
@@ -99,7 +126,9 @@ def ddim_loop(pipeline, ddim_scheduler, latent, num_inv_steps, prompt):
 
 @torch.no_grad()
 def ddim_inversion(pipeline, ddim_scheduler, video_latent, num_inv_steps, prompt=""):
-    ddim_latents = ddim_loop(pipeline, ddim_scheduler, video_latent, num_inv_steps, prompt)
+    ddim_latents = ddim_loop(
+        pipeline, ddim_scheduler, video_latent, num_inv_steps, prompt
+    )
     return ddim_latents
 
 
@@ -119,15 +148,19 @@ def images2video(video, path, fps=8):
 
 tensor_interpolation = None
 
+
 def get_tensor_interpolation_method():
     return tensor_interpolation
+
 
 def set_tensor_interpolation_method(is_slerp):
     global tensor_interpolation
     tensor_interpolation = slerp if is_slerp else linear
 
+
 def linear(v1, v2, t):
     return (1.0 - t) * v1 + t * v2
+
 
 def slerp(
     v0: torch.Tensor, v1: torch.Tensor, t: float, DOT_THRESHOLD: float = 0.9995
@@ -136,7 +169,7 @@ def slerp(
     u1 = v1 / v1.norm()
     dot = (u0 * u1).sum()
     if dot.abs() > DOT_THRESHOLD:
-        #logger.info(f'warning: v0 and v1 close to parallel, using linear interpolation instead.')
+        # logger.info(f'warning: v0 and v1 close to parallel, using linear interpolation instead.')
         return (1.0 - t) * v0 + t * v1
     omega = dot.acos()
     return (((1.0 - t) * omega).sin() * v0 + (t * omega).sin() * v1) / omega.sin()

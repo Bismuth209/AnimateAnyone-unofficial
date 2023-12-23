@@ -18,9 +18,8 @@ from models.ReferenceEncoder import ReferenceEncoder
 from models.ReferenceNet import ReferenceNet
 from models.ReferenceNet_attention import ReferenceNetAttention
 
-from models.PoseGuider import PoseGuider
+from models.poseguider import PoseGuider
 from models.unet import UNet3DConditionModel
-# from models.hack_unet3d import Hack_UNet3DConditionModel as UNet3DConditionModel
 from pipelines.pipeline_stage_2 import AnimationAnyonePipeline
 
 from utils.util import save_videos_grid
@@ -96,9 +95,6 @@ def main(args):
         scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
     )
 
-    clip_image_encoder.to(torch.float32).to(device)
-    referencenet.to(device)
-    poseguider.to(device)
     pipeline.to(device)
     ### <<< create validation pipeline <<< ###
     
@@ -249,4 +245,3 @@ if __name__ == "__main__":
     run(args)
 
     # python3 -m pipelines.animation_stage_2 --config configs/prompts/animation_stage_2.yaml
-    # python3 -m pipelines.animation_stage_2 --config configs/prompts/my_animation_stage_2_202312211801.yaml

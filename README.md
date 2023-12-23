@@ -1,9 +1,9 @@
 # Unofficial Implementation of Animate Anyone
 
+If you find this repository helpful, please consider giving us a star⭐!
+
 ## Overview
 This repository contains an simple and unofficial implementation of [Animate Anyone](https://humanaigc.github.io/animate-anyone/). This project is built upon [magic-animate](https://github.com/magic-research/magic-animate/tree/main) and [AnimateDiff](https://github.com/guoyww/AnimateDiff).
-
-If you find this repository helpful, please consider giving us a star⭐! 
 
 ## News 🤗🤗🤗
 The first training phase basic test passed, currently in training and testing the second phase.
@@ -11,6 +11,20 @@ The first training phase basic test passed, currently in training and testing th
 ~~Training may be slow due to GPU shortage.😢~~
 
 It only takes a few days to release the weights.😄
+
+## Sample of Stage 1 Result on UBC-fashion dataset
+
+The current version of the face also has some artifacts.  Also, this is a model trained on a UBC dataset rather than a large-scale dataset.
+
+<table class="center">
+    <tr><td><img src="./assets/stage1/1.png"></td><td><img src="./assets/stage1/2.png"></td></tr>
+    <tr><td><img src="./assets/stage1/3.png"></td><td><img src="./assets/stage1/8.png"></td></tr>
+    <tr><td><img src="./assets/stage1/9.png"></td><td><img src="./assets/stage1/10.png"></td></tr>
+    <tr><td><img src="./assets/stage1/4.png"></td><td><img src="./assets/stage1/5.png"></td></tr>
+    <tr><td><img src="./assets/stage1/6.png"></td><td><img src="./assets/stage1/7.png"></td></tr>
+
+</table>
+<p style="margin-left: 2em; margin-top: -1em"></p>
 
 ## Note !!!
 This project is under continuous development in part-time, there may be bugs in the code, welcome to correct them, I will optimize the code after the pre-trained model is released!

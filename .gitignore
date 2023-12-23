@@ -34,5 +34,5 @@ outputs/
 **/__pycache__/
 checkpoints/
 
-.git-sizhky
 .git-og
+.git-sizhky

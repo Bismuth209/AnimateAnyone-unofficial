@@ -54,57 +54,87 @@ from pathlib import Path
 
 
 def main(args):
-
     *_, func_args = inspect.getargvalues(inspect.currentframe())
     func_args = dict(func_args)
-    
-    config  = OmegaConf.load(args.config)
-      
+
+    config = OmegaConf.load(args.config)
+
     # Initialize distributed training
     device = torch.device(f"cuda:{args.rank}")
-    dist_kwargs = {"rank":args.rank, "world_size":args.world_size, "dist":args.dist}
-    
+    dist_kwargs = {"rank": args.rank, "world_size": args.world_size, "dist": args.dist}
+
     if config.savename is None:
         time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         savedir = f"samples/{Path(args.config).stem}-{time_str}"
     else:
         savedir = f"samples/{config.savename}"
-        
+
     if args.dist:
         dist.broadcast_object_list([savedir], 0)
         dist.barrier()
-    
+
     if args.rank == 0:
         os.makedirs(savedir, exist_ok=True)
 
     inference_config = OmegaConf.load(config.inference_config)
-        
+
     motion_module = config.motion_module
-    
+
     ### >>> create animation pipeline >>> ###
-    tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_model_path, subfolder="tokenizer")
-    text_encoder = CLIPTextModel.from_pretrained(config.pretrained_model_path, subfolder="text_encoder")
+    tokenizer = CLIPTokenizer.from_pretrained(
+        config.pretrained_model_path, subfolder="tokenizer"
+    )
+    text_encoder = CLIPTextModel.from_pretrained(
+        config.pretrained_model_path, subfolder="text_encoder"
+    )
     if config.pretrained_unet_path:
-        unet = UNet3DConditionModel.from_pretrained_2d(config.pretrained_unet_path, unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
+        unet = UNet3DConditionModel.from_pretrained_2d(
+            config.pretrained_unet_path,
+            unet_additional_kwargs=OmegaConf.to_container(
+                inference_config.unet_additional_kwargs
+            ),
+        )
     else:
-        unet = UNet3DConditionModel.from_pretrained_2d(config.pretrained_model_path, subfolder="unet", unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs))
+        unet = UNet3DConditionModel.from_pretrained_2d(
+            config.pretrained_model_path,
+            subfolder="unet",
+            unet_additional_kwargs=OmegaConf.to_container(
+                inference_config.unet_additional_kwargs
+            ),
+        )
     # appearance_encoder = AppearanceEncoderModel.from_pretrained(config.pretrained_appearance_encoder_path, subfolder="appearance_encoder").to(device)
     # reference_control_writer = ReferenceAttentionControl(appearance_encoder, do_classifier_free_guidance=True, mode='write', fusion_blocks=config.fusion_blocks)
     # reference_control_reader = ReferenceAttentionControl(unet, do_classifier_free_guidance=True, mode='read', fusion_blocks=config.fusion_blocks)
     if config.pretrained_vae_path is not None:
         vae = AutoencoderKL.from_pretrained(config.pretrained_vae_path)
     else:
-        vae = AutoencoderKL.from_pretrained(config.pretrained_model_path, subfolder="vae")
+        vae = AutoencoderKL.from_pretrained(
+            config.pretrained_model_path, subfolder="vae"
+        )
 
-    referencenet = ReferenceNet.from_pretrained(config.pretrained_model_path, subfolder="unet")
-    reference_control_writer = ReferenceNetAttention(referencenet, do_classifier_free_guidance=False, mode='write', fusion_blocks=config.fusion_blocks)
-    reference_control_reader = ReferenceNetAttention(unet, do_classifier_free_guidance=False, mode='read', fusion_blocks=config.fusion_blocks)
-    poseguider = PoseGuider(noise_latent_channels=4).from_pretrained(config.pretrained_poseguider_path)
+    referencenet = ReferenceNet.from_pretrained(
+        config.pretrained_model_path, subfolder="unet"
+    )
+    reference_control_writer = ReferenceNetAttention(
+        referencenet,
+        do_classifier_free_guidance=False,
+        mode="write",
+        fusion_blocks=config.fusion_blocks,
+    )
+    reference_control_reader = ReferenceNetAttention(
+        unet,
+        do_classifier_free_guidance=False,
+        mode="read",
+        fusion_blocks=config.fusion_blocks,
+    )
+    poseguider = PoseGuider(noise_latent_channels=4).from_pretrained(
+        config.pretrained_poseguider_path
+    )
     clip_image_encoder = ReferenceEncoder(model_path=config.pretrained_clip_path)
-    clip_image_processor = CLIPProcessor.from_pretrained(config.pretrained_clip_path,local_files_only=True)
+    clip_image_processor = CLIPProcessor.from_pretrained(
+        config.pretrained_clip_path, local_files_only=True
+    )
 
-    
-    
     ### Load controlnet
     # controlnet   = ControlNetModel.from_pretrained(config.pretrained_controlnet_path)
 
@@ -126,18 +156,28 @@ def main(args):
     #     scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
     #     # NOTE: UniPCMultistepScheduler
     # )
-    
+
     pipeline = AnimationAnyonePipeline(
-        vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, unet=unet,
-        scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
+        vae=vae,
+        text_encoder=text_encoder,
+        tokenizer=tokenizer,
+        unet=unet,
+        scheduler=DDIMScheduler(
+            **OmegaConf.to_container(inference_config.noise_scheduler_kwargs)
+        ),
         # NOTE: UniPCMultistepScheduler
     )
 
     # 1. unet ckpt
     # 1.1 motion module
     motion_module_state_dict = torch.load(motion_module, map_location="cpu")
-    if "global_step" in motion_module_state_dict: func_args.update({"global_step": motion_module_state_dict["global_step"]})
-    motion_module_state_dict = motion_module_state_dict['state_dict'] if 'state_dict' in motion_module_state_dict else motion_module_state_dict
+    if "global_step" in motion_module_state_dict:
+        func_args.update({"global_step": motion_module_state_dict["global_step"]})
+    motion_module_state_dict = (
+        motion_module_state_dict["state_dict"]
+        if "state_dict" in motion_module_state_dict
+        else motion_module_state_dict
+    )
     try:
         # extra steps for self-trained models
         state_dict = OrderedDict()
@@ -149,14 +189,16 @@ def main(args):
                 state_dict[key] = motion_module_state_dict[key]
         motion_module_state_dict = state_dict
         del state_dict
-        missing, unexpected = pipeline.unet.load_state_dict(motion_module_state_dict, strict=False)
+        missing, unexpected = pipeline.unet.load_state_dict(
+            motion_module_state_dict, strict=False
+        )
         assert len(unexpected) == 0
     except:
         _tmp_ = OrderedDict()
         for key in motion_module_state_dict.keys():
             if "motion_modules" in key:
                 if key.startswith("unet."):
-                    _key = key.split('unet.')[-1]
+                    _key = key.split("unet.")[-1]
                     _tmp_[_key] = motion_module_state_dict[key]
                 else:
                     _tmp_[key] = motion_module_state_dict[key]
@@ -167,13 +209,19 @@ def main(args):
 
     pipeline.to(device)
     ### <<< create validation pipeline <<< ###
-    
+
     random_seeds = config.get("seed", [-1])
-    random_seeds = [random_seeds] if isinstance(random_seeds, int) else list(random_seeds)
-    random_seeds = random_seeds * len(config.source_image) if len(random_seeds) == 1 else random_seeds
-    
+    random_seeds = (
+        [random_seeds] if isinstance(random_seeds, int) else list(random_seeds)
+    )
+    random_seeds = (
+        random_seeds * len(config.source_image)
+        if len(random_seeds) == 1
+        else random_seeds
+    )
+
     # input test videos (either source video/ conditions)
-    
+
     test_videos = config.video_path
     source_images = config.source_image
     num_actual_inference_steps = config.get("num_actual_inference_steps", config.steps)
@@ -185,41 +233,51 @@ def main(args):
     config.random_seed = []
     prompt = n_prompt = ""
     for idx, (source_image, test_video, random_seed, size, step) in tqdm(
-        enumerate(zip(source_images, test_videos, random_seeds, sizes, steps)), 
-        total=len(test_videos), 
-        disable=(args.rank!=0)
+        enumerate(zip(source_images, test_videos, random_seeds, sizes, steps)),
+        total=len(test_videos),
+        disable=(args.rank != 0),
     ):
         samples_per_video = []
         samples_per_clip = []
         # manually set random seed for reproduction
-        if random_seed != -1: 
+        if random_seed != -1:
             torch.manual_seed(random_seed)
             set_seed(random_seed)
         else:
             torch.seed()
         config.random_seed.append(torch.initial_seed())
 
-        if test_video.endswith('.mp4'):
+        if test_video.endswith(".mp4"):
             control = VideoReader(test_video).read()
             if control[0].shape[0] != size:
-                control = [np.array(Image.fromarray(c).resize((size, size))) for c in control]
+                control = [
+                    np.array(Image.fromarray(c).resize((size, size))) for c in control
+                ]
             if config.max_length is not None:
-                control = control[config.offset: (config.offset+config.max_length)]
+                control = control[config.offset : (config.offset + config.max_length)]
             control = np.array(control)
-        
+
         if source_image.endswith(".mp4"):
-            source_image = np.array(Image.fromarray(VideoReader(source_image).read()[0]).resize((size, size)))
+            source_image = np.array(
+                Image.fromarray(VideoReader(source_image).read()[0]).resize(
+                    (size, size)
+                )
+            )
         else:
             source_image = np.array(Image.open(source_image).resize((size, size)))
         H, W, C = source_image.shape
-        
+
         print(f"current seed: {torch.initial_seed()}")
         init_latents = None
-        
+
         # print(f"sampling {prompt} ...")
         original_length = control.shape[0]
         if control.shape[0] % config.L > 0:
-            control = np.pad(control, ((0, config.L-control.shape[0] % config.L), (0, 0), (0, 0), (0, 0)), mode='edge')
+            control = np.pad(
+                control,
+                ((0, config.L - control.shape[0] % config.L), (0, 0), (0, 0), (0, 0)),
+                mode="edge",
+            )
         generator = torch.Generator(device=torch.device("cuda:0"))
         generator.manual_seed(torch.initial_seed())
         # sample = pipeline(
@@ -234,61 +292,76 @@ def main(args):
         #     init_latents            = init_latents,
         #     generator               = generator,
         #     num_actual_inference_steps = num_actual_inference_steps,
-        #     appearance_encoder       = appearance_encoder, 
+        #     appearance_encoder       = appearance_encoder,
         #     reference_control_writer = reference_control_writer,
         #     reference_control_reader = reference_control_reader,
         #     source_image             = source_image,
         #     **dist_kwargs,
         # ).videos
-        
+
         sample = pipeline(
             prompt,
-            negative_prompt         = n_prompt,
-            num_inference_steps     = config.steps,
-            guidance_scale          = config.guidance_scale,
-            width                   = W,
-            height                  = H,
-            video_length            = len(control),
-            init_latents            = init_latents,
-            generator               = generator,
-            num_actual_inference_steps = num_actual_inference_steps,
-            reference_control_writer = reference_control_writer,
-            reference_control_reader = reference_control_reader,
-            source_image             = source_image,
-            referencenet             = referencenet,
-            poseguider               = poseguider,
-            clip_image_processor     = clip_image_processor,
-            clip_image_encoder       = clip_image_encoder,
-            pose_condition           = control,
+            negative_prompt=n_prompt,
+            num_inference_steps=config.steps,
+            guidance_scale=config.guidance_scale,
+            width=W,
+            height=H,
+            video_length=len(control),
+            init_latents=init_latents,
+            generator=generator,
+            num_actual_inference_steps=num_actual_inference_steps,
+            reference_control_writer=reference_control_writer,
+            reference_control_reader=reference_control_reader,
+            source_image=source_image,
+            referencenet=referencenet,
+            poseguider=poseguider,
+            clip_image_processor=clip_image_processor,
+            clip_image_encoder=clip_image_encoder,
+            pose_condition=control,
             **dist_kwargs,
         ).videos
 
         if args.rank == 0:
             source_images = np.array([source_image] * original_length)
-            source_images = rearrange(torch.from_numpy(source_images), "t h w c -> 1 c t h w") / 255.0
+            source_images = (
+                rearrange(torch.from_numpy(source_images), "t h w c -> 1 c t h w")
+                / 255.0
+            )
             samples_per_video.append(source_images)
-            
+
             control = control / 255.0
             control = rearrange(control, "t h w c -> 1 c t h w")
             control = torch.from_numpy(control)
             samples_per_video.append(control[:, :, :original_length])
 
             samples_per_video.append(sample[:, :, :original_length])
-                
+
             samples_per_video = torch.cat(samples_per_video)
 
             video_name = os.path.basename(test_video)[:-4]
             source_name = os.path.basename(config.source_image[idx]).split(".")[0]
-            save_videos_grid(samples_per_video[-1:], f"{savedir}/videos/{source_name}_{video_name}.mp4")
-            save_videos_grid(samples_per_video, f"{savedir}/videos/{source_name}_{video_name}/grid.mp4")
+            save_videos_grid(
+                samples_per_video[-1:],
+                f"{savedir}/videos/{source_name}_{video_name}.mp4",
+            )
+            save_videos_grid(
+                samples_per_video,
+                f"{savedir}/videos/{source_name}_{video_name}/grid.mp4",
+            )
 
             if config.save_individual_videos:
-                save_videos_grid(samples_per_video[1:2], f"{savedir}/videos/{source_name}_{video_name}/ctrl.mp4")
-                save_videos_grid(samples_per_video[0:1], f"{savedir}/videos/{source_name}_{video_name}/orig.mp4")
-                
+                save_videos_grid(
+                    samples_per_video[1:2],
+                    f"{savedir}/videos/{source_name}_{video_name}/ctrl.mp4",
+                )
+                save_videos_grid(
+                    samples_per_video[0:1],
+                    f"{savedir}/videos/{source_name}_{video_name}/orig.mp4",
+                )
+
         if args.dist:
             dist.barrier()
-               
+
     if args.rank == 0:
         OmegaConf.save(config, f"{savedir}/config.yaml")
 
@@ -304,7 +377,6 @@ def distributed_main(device_id, args):
 
 
 def run(args):
-
     if args.dist:
         args.world_size = max(1, torch.cuda.device_count())
         assert args.world_size <= torch.cuda.device_count()

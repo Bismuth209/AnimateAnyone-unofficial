@@ -34,7 +34,6 @@ from .context import (
 from utils.util import get_tensor_interpolation_method
 
 from models.unet import UNet3DConditionModel
-# from models.hack_unet3d import UNet3DConditionModel
 from models.ReferenceNet_attention import ReferenceNetAttention
 
 import torchvision.transforms as transforms
@@ -600,12 +599,11 @@ class AnimationAnyonePipeline(DiffusionPipeline):
                 latents_pose_input = torch.cat([latents_pose[:,:,c] for c in context]).repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1)
 
                 latent_model_input = latent_model_input + latents_pose_input
-
+                
                 pred = self.unet(
                     latent_model_input, 
                     t, 
                     encoder_hidden_states=image_embeddings[:b],
-                    latent_pose=latents_pose_input,
                     return_dict=False,
                 )[0]
 

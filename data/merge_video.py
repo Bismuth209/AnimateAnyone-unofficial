@@ -2,19 +2,19 @@ import cv2
 import os
 from tqdm import tqdm
 
-dataset_folder = '../../TikTok_dataset'
-fps = 30 # tiktok dataset fps=30
+
+dataset_folder = "/home/ubuntu/data/TikTok_dataset/TikTok_dataset"
+fps = 30  # tiktok dataset fps=30
 
 all_files = os.listdir(dataset_folder)
 
 
-
 for folder in tqdm(all_files):
     folder_path = os.path.join(dataset_folder, folder)
-    # image_folder = os.path.join(folder_path, 'images')
-    image_folder = os.path.join(folder_path, 'dwpose')
-    # video_path = os.path.join(folder_path, f"{folder}.mp4")
-    video_path = os.path.join(folder_path, f"{folder}_dwpose.mp4")
+    image_folder = os.path.join(folder_path, "images")
+    # image_folder = os.path.join(folder_path, 'dwpose')
+    video_path = os.path.join(folder_path, f"{folder}.mp4")
+    # video_path = os.path.join(folder_path, f"{folder}_dwpose.mp4")
 
     if os.path.exists(video_path):
         continue
@@ -27,7 +27,7 @@ for folder in tqdm(all_files):
         height, width, layers = frame.shape
         size = (width, height)
 
-        video = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, size)
+        video = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
 
         for image in images:
             img_path = os.path.join(image_folder, image)

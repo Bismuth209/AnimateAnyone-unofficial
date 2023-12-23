@@ -16,25 +16,18 @@ from torch import distributed as dist
 
 
 def distributed_init(args):
-
     if dist.is_initialized():
         warnings.warn("Distributed is already initialized, cannot initialize twice!")
         args.rank = dist.get_rank()
     else:
-        print(
-            f"Distributed Init (Rank {args.rank}): "
-            f"{args.init_method}"
-        )
+        print(f"Distributed Init (Rank {args.rank}): " f"{args.init_method}")
         dist.init_process_group(
-            backend='nccl',
+            backend="nccl",
             init_method=args.init_method,
             world_size=args.world_size,
             rank=args.rank,
         )
-        print(
-            f"Initialized Host {socket.gethostname()} as Rank "
-            f"{args.rank}"
-        )
+        print(f"Initialized Host {socket.gethostname()} as Rank " f"{args.rank}")
 
         if "MASTER_ADDR" not in os.environ or "MASTER_PORT" not in os.environ:
             # Set for onboxdataloader support

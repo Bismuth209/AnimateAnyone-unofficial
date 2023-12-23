@@ -1,9 +1,8 @@
 image_finetune: true
 
 output_dir: "outputs"
-pretrained_model_path: "./pretrained_models/stable-diffusion-v1-5"
-clip_model_path: "./pretrained_models/clip-vit-base-patch32"
-# clip_model_path: "./pretrained_models/clip-vit-large-patch14"
+pretrained_model_path: "/home/ubuntu/code/animate-anyone-2/checkpoints/stable-diffusion-v1-5"
+clip_model_path: "/home/ubuntu/code/animate-anyone-2/checkpoints/clip-vit-base-patch32"
 poseguider_checkpoint_path: ""
 referencenet_checkpoint_path: ""
 
