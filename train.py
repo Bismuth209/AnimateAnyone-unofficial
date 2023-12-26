@@ -206,8 +206,8 @@ def main(
         referencenet_state_dict = torch.load(
             referencenet_checkpoint_path, map_location="cpu"
         )
-        poseguider.load_state_dict(poseguider_state_dict, strict=False)
-        referencenet.load_state_dict(state_dict, strict=False)
+        poseguider.load_state_dict(poseguider_state_dict, strict=True)
+        referencenet.load_state_dict(referencenet_state_dict, strict=True)
 
     
 
@@ -597,8 +597,8 @@ def main(
                     "epoch": epoch,
                     "global_step": global_step,
                     "unet_state_dict": unet.module.state_dict(),
-                    "poseguider_state_dict": poseguider.module.state_dict(),
-                    "referencenet_state_dict": referencenet.module.state_dict(),
+                    "poseguider_state_dict": poseguider.state_dict(),
+                    "referencenet_state_dict": referencenet.state_dict(),
                     
                 }
                 if step == len(train_dataloader) - 1:
@@ -606,6 +606,8 @@ def main(
                         state_dict,
                         os.path.join(save_path, f"checkpoint-epoch-{epoch+1}.ckpt"),
                     )
+                    if epoch > 0:
+                        os.remove(os.path.join(save_path, f"checkpoint-epoch-{epoch}.ckpt"))
                 else:
                     torch.save(state_dict, os.path.join(save_path, f"checkpoint-global_step-{global_step}.ckpt"))
                 logging.info(f"Saved state to {save_path} (global_step: {global_step})")
