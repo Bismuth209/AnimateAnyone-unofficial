@@ -1,7 +1,14 @@
 pretrained_model_path: "./checkpoints/stable-diffusion-v1-5"
 # pretrained_vae_path: "./checkpoints/sd-vae-ft-mse"
-pretrained_unet_path: "./checkpoints/train_stage_1_UBC_768-2023-12-25T07-30-58/unet_stage_1.ckpt"
 pretrained_clip_path: "./checkpoints/clip-vit-base-patch32"
+
+# a = train_stage_1_UBC-2023-12-23T06-11-14
+# b = train_stage_1_UBC_768-2023-12-23T17-09-33
+# c = train_stage_1_UBC_768-2023-12-24T05-50-33
+# d = train_stage_1_UBC_768-2023-12-25T07-30-58
+# e = train_stage_1_UBC_768-2023-12-27T06-33-37
+
+pretrained_unet_path: "./checkpoints/train_stage_1_UBC_768-2023-12-25T07-30-58/unet_stage_1.ckpt"
 pretrained_poseguider_path: "./checkpoints/train_stage_1_UBC_768-2023-12-25T07-30-58/poseguider_stage_1.ckpt"
 pretrained_referencenet_path: "./checkpoints/train_stage_1_UBC_768-2023-12-25T07-30-58/referencenet_stage_1.ckpt"
 
@@ -16,10 +23,11 @@ guidance_scale: 7.5
 # guidance_scale: 0
 
 source_image:
-  - "/home/ubuntu/data/ubc_fashion/train/91w4r-YTBlS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/train/91+fUG+fyBS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/train/91+uwOT1POS.mp4"
 video_path:
-  - "/home/ubuntu/data/ubc_fashion/train_dwpose/91w4r-YTBlS.mp4"
-
+  - "/home/ubuntu/data/ubc_fashion/train_dwpose/91+fUG+fyBS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/train_dwpose/91+uwOT1POS.mp4"
 
 inference_config: "configs/inference/inference.yaml"
 size: 768

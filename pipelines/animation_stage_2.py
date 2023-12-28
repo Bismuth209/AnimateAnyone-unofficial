@@ -18,7 +18,7 @@ from models.ReferenceEncoder import ReferenceEncoder
 from models.ReferenceNet import ReferenceNet
 from models.ReferenceNet_attention import ReferenceNetAttention
 
-from models.poseguider import PoseGuider
+# from models.poseguider import PoseGuider
 from models.unet import UNet3DConditionModel
 from pipelines.pipeline_stage_2 import AnimationAnyonePipeline
 
@@ -78,17 +78,15 @@ def main(args):
     reference_control_writer = None
     reference_control_reader = None
     
-    
+    unet.enable_xformers_memory_efficient_attention()
+    referencenet.enable_xformers_memory_efficient_attention()
 
-    # unet.enable_xformers_memory_efficient_attention()
-    # referencenet.enable_xformers_memory_efficient_attention()
-
-    vae.to(torch.float32)
-    unet.to(torch.float32)
-    text_encoder.to(torch.float32)
-    referencenet.to(torch.float32)
-    poseguider.to(torch.float32)
-    clip_image_encoder.to(torch.float32)
+    vae.to(torch.float32).to(device)
+    unet.to(torch.float32).to(device)
+    text_encoder.to(torch.float32).to(device)
+    referencenet.to(torch.float32).to(device)
+    poseguider.to(torch.float32).to(device)
+    clip_image_encoder.to(torch.float32).to(device)
     
     pipeline = AnimationAnyonePipeline(
         vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, unet=unet,
@@ -147,6 +145,7 @@ def main(args):
         init_latents = None
         
         # print(f"sampling {prompt} ...")
+        control = control[100:148]
         original_length = control.shape[0]
         if control.shape[0] % config.L > 0:
             control = np.pad(control, ((0, config.L-control.shape[0] % config.L), (0, 0), (0, 0), (0, 0)), mode='edge')
@@ -172,6 +171,7 @@ def main(args):
             clip_image_processor     = clip_image_processor,
             clip_image_encoder       = clip_image_encoder,
             pose_condition           = control,
+            context_frames           = 8,
             **dist_kwargs,
         ).videos
 

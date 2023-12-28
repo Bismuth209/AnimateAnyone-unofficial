@@ -217,6 +217,11 @@ def main(
             subfolder="unet",
             unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs),
         )
+        # unet = UNet3DConditionModel.from_pretrained_2d(
+        #     'checkpoints/train_stage_2_UBC_768-2023-12-26T04-55-42', 
+        #     unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs), 
+        #     specific_model='unet_stage_2.ckpt'
+        # )
     else:
         unet = UNet2DConditionModel.from_pretrained(
             pretrained_model_path, subfolder="unet"

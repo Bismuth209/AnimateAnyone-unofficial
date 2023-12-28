@@ -1,5 +1,6 @@
 # Adapted from https://github.com/magic-research/magic-animate/blob/main/magicanimate/pipelines/pipeline_animation.py
 
+from torch_snippets import *
 import inspect, math
 from typing import Callable, List, Optional, Union
 from dataclasses import dataclass
@@ -44,8 +45,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 @dataclass
 class AnimationPipelineOutput(BaseOutput):
     videos: Union[torch.Tensor, np.ndarray]
-
-
+        
 class AnimationAnyonePipeline(DiffusionPipeline):
     _optional_components = []
 
@@ -423,7 +423,6 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         decoder_consistency = None, 
         **kwargs,
     ):
-
         # Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
         width = width or self.unet.config.sample_size * self.vae_scale_factor
@@ -581,7 +580,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             # print(f"global_context:{global_context}")
             
 
-            for context in global_context[rank::world_size]:
+            for context in track2(global_context[rank::world_size]):
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = (
                     torch.cat([latents[:, :, c] for c in context])

@@ -43,7 +43,7 @@ unet_additional_kwargs:
 
 train_data:
   # csv_path:     "./data/UBC_train_info_test.csv"
-  csv_path:     "./data/UBC_train_info.csv"
+  csv_path:     "./data/UBC_train_micro_info.csv"
   video_folder: "/home/ubuntu/data/ubc_fashion/"
   sample_size:  768 # for 40G 256
   sample_stride: 4
@@ -69,13 +69,13 @@ unet_checkpoint_path: ""
 fusion_blocks: "full"
 
 learning_rate:    1.e-5
-train_batch_size: 2
+train_batch_size: 1
 
 max_train_epoch:      -1
 max_train_steps:      20000
 checkpointing_epochs: -1
 checkpointing_steps:  5000
-gradient_accumulation_steps: 32
+gradient_accumulation_steps: 64
 
 
 validation_steps:       500000

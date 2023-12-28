@@ -3,8 +3,8 @@ image_finetune: false
 output_dir: "outputs"
 pretrained_model_path: "./checkpoints/stable-diffusion-v1-5"
 clip_model_path: "./checkpoints/clip-vit-base-patch32"
-poseguider_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/poseguider_stage_1.ckpt"
-referencenet_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/referencenet_stage_1.ckpt"
+poseguider_checkpoint_path: "./checkpoints/train_stage_2_UBC_768-2023-12-26T04-55-42/poseguider_stage_2.ckpt"
+referencenet_checkpoint_path: "./checkpoints/train_stage_2_UBC_768-2023-12-26T04-55-42/referencenet_stage_2.ckpt"
 
 
 unet_additional_kwargs:

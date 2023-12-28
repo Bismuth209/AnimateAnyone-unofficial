@@ -187,7 +187,7 @@ def main(args):
                 mode="edge",
             )
 
-        idx_control = random.randint(0, control.shape[0] - 1)
+        idx_control = len(control)//2 # random.randint(0, control.shape[0] - 1)
         control = control[idx_control]  # (256, 256, 3)
 
         generator = torch.Generator(device=torch.device("cuda:0"))

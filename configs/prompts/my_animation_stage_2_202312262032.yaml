@@ -1,0 +1,51 @@
+pretrained_model_path: "./checkpoints/stable-diffusion-v1-5"
+pretrained_clip_path: "./checkpoints/clip-vit-base-patch32"
+
+pretrained_motion_unet_path: "./checkpoints/train_stage_2_UBC_768-2023-12-26T16-55-23/"
+specific_motion_unet_model: "unet_stage_2.ckpt"
+
+pretrained_poseguider_path: "./checkpoints/train_stage_2_UBC_768-2023-12-26T16-55-23/poseguider_stage_2.ckpt"
+pretrained_referencenet_path: "./checkpoints/train_stage_2_UBC_768-2023-12-26T16-55-23/referencenet_stage_2.ckpt"
+
+savename: null
+
+fusion_blocks: "full"
+
+
+seed:           [42]
+steps:          25
+guidance_scale: 7.5
+# guidance_scale: 0
+
+source_image:
+  - "/home/ubuntu/data/ubc_fashion/train/91+fUG+fyBS.mp4"
+video_path:
+  - "/home/ubuntu/data/ubc_fashion/train_dwpose/91+fUG+fyBS.mp4"
+
+inference_config: "configs/inference/inference.yaml"
+size: 768
+L:    16
+S:    1 
+I:    0
+clip: 0
+offset: 0
+max_length: null
+video_type: "condition"
+invert_video: false
+save_individual_videos: false
+
+unet_additional_kwargs:
+  use_motion_module              : true
+  motion_module_resolutions      : [ 1,2,4,8 ]
+  unet_use_cross_frame_attention : false
+  unet_use_temporal_attention    : false
+
+  motion_module_type: Vanilla
+  motion_module_kwargs:
+    num_attention_heads                : 8
+    num_transformer_block              : 1
+    attention_block_types              : [ "Temporal_Self", "Temporal_Self" ]
+    temporal_position_encoding         : true
+    temporal_position_encoding_max_len : 24
+    temporal_attention_dim_div         : 1
+    zero_initialize                    : true
