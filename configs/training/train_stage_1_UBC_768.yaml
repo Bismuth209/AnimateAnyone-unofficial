@@ -1,17 +1,11 @@
 image_finetune: true
 
-output_dir: "outputs"
+output_dir: "outputs/"
+folder_name: "v6"
 pretrained_model_path: "./checkpoints/stable-diffusion-v1-5"
 clip_model_path: "./checkpoints/clip-vit-base-patch32"
-# clip_model_path: "./pretrained_models/clip-vit-large-patch14"
-# poseguider_checkpoint_path: "./checkpoints/train_stage_1_UBC-2023-12-23T06-11-14/poseguider_stage_1.ckpt"
-# referencenet_checkpoint_path: "./checkpoints/train_stage_1_UBC-2023-12-23T06-11-14/referencenet_stage_1.ckpt"
-# poseguider_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-23T17-09-33/poseguider_stage_1.ckpt"
-# referencenet_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-23T17-09-33/referencenet_stage_1.ckpt"
-# poseguider_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/poseguider_stage_1.ckpt"
-# referencenet_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/referencenet_stage_1.ckpt"
-poseguider_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-25T07-30-58/poseguider_stage_1.ckpt"
-referencenet_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-25T07-30-58/referencenet_stage_1.ckpt"
+poseguider_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/poseguider_stage_1.ckpt"
+referencenet_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/referencenet_stage_1.ckpt"
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
@@ -69,13 +63,13 @@ unet_checkpoint_path: ""
 fusion_blocks: "full"
 
 learning_rate:    1.e-5
-train_batch_size: 2
+train_batch_size: 4
 
 max_train_epoch:      -1
 max_train_steps:      20000
 checkpointing_epochs: -1
 checkpointing_steps:  5000
-gradient_accumulation_steps: 32
+gradient_accumulation_steps: 1
 
 
 validation_steps:       500000

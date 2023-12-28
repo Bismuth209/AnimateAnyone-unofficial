@@ -1,3 +1,5 @@
+from torch_snippets import *
+from pipelines.animation_stage_1 import main as animation_stage_1
 import os
 import math
 import wandb
@@ -45,7 +47,37 @@ from models.PoseGuider import PoseGuider
 from models.ReferenceNet import ReferenceNet
 from models.ReferenceNet_attention import ReferenceNetAttention
 
-import pdb
+import glob
+import os
+
+
+def save_first_stage_weights(ckpt_path, stage=1):
+    checkpoint_pattern = os.path.join(ckpt_path, "checkpoint*")
+    checkpoint_files = glob.glob(checkpoint_pattern)
+    if checkpoint_files:
+        latest_checkpoint = max(checkpoint_files, key=os.path.getmtime)
+        print(f"The latest checkpoint is: {latest_checkpoint}")
+    else:
+        print("No checkpoint files found in the specified folder.")
+    ckpt_path = latest_checkpoint
+    to = f'checkpoints/{stem(parent(parent(ckpt_path)))}/'
+    makedir(to)
+    print(to)
+
+    full_state_dict = torch.load(ckpt_path, map_location='cpu')
+
+    poseguider_state_dict = full_state_dict['poseguider_state_dict']
+    referencenet_state_dict = full_state_dict['referencenet_state_dict']
+    unet_state_dict = full_state_dict['unet_state_dict']
+
+    poseguider_ckpt_path = f'{to}/poseguider_stage_{stage}.ckpt'
+    referencenet_ckpt_path = f'{to}/referencenet_stage_{stage}.ckpt'
+    unet_ckpt_path = f'{to}/unet_stage_{stage}.ckpt'
+
+    torch.save(poseguider_state_dict, poseguider_ckpt_path)
+    torch.save(referencenet_state_dict, referencenet_ckpt_path)
+    torch.save(unet_state_dict, unet_ckpt_path)
+
 
 def init_dist(launcher="slurm", backend='nccl', port=28888, **kwargs):
     """Initializes distributed environment."""
@@ -143,6 +175,7 @@ def main(
     enable_xformers_memory_efficient_attention: bool = True,
     global_seed: int = 42,
     is_debug: bool = False,
+    folder_name=None,
 ):
     check_min_version("0.21.4")
 
@@ -157,11 +190,11 @@ def main(
     torch.manual_seed(seed)
 
     # Logging folder
-    folder_name = (
-        "debug"
-        if is_debug
-        else name + datetime.datetime.now().strftime("-%Y-%m-%dT%H-%M-%S")
-    )
+    # folder_name = (
+    #     "debug"
+    #     if is_debug
+    #     else name + datetime.datetime.now().strftime("-%Y-%m-%dT%H-%M-%S")
+    # )
     output_dir = os.path.join(output_dir, folder_name)
     if is_debug and os.path.exists(output_dir):
         os.system(f"rm -rf {output_dir}")
@@ -435,155 +468,138 @@ def main(
         
         
         for step, batch in enumerate(train_dataloader):
-            # ToDo: add cfg_random_null_image to strength cfg
-            # if cfg_random_null_text:
-            #     batch['text'] = [name if random.random() > cfg_random_null_text_ratio else "" for name in batch['text']]
-
-            # # Data batch sanity check
-            # if epoch == first_epoch and step == 0:
-            #     pixel_values, texts = batch['pixel_values'].cpu(), batch['text']
-            #     if not image_finetune:
-            #         pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
-            #         for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
-            #             pixel_value = pixel_value[None, ...]
-            #             save_videos_grid(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.gif", rescale=True)
-            #     else:
-            #         for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
-            #             pixel_value = pixel_value / 2. + 0.5
-            #             torchvision.utils.save_image(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.png")
-
             ### >>>> Training >>>> ###
 
             # Convert videos to latent space
-            pixel_values = batch["pixel_values"].to(local_rank)
-            pixel_values_pose = batch["pixel_values_pose"].to(local_rank)
-            clip_ref_image = batch["clip_ref_image"].to(local_rank)
-            pixel_values_ref_img = batch["pixel_values_ref_img"].to(local_rank)
-            drop_image_embeds = batch["drop_image_embeds"].to(local_rank) # torch.Size([bs])
-            video_length = pixel_values.shape[1]
+            # pixel_values = batch["pixel_values"].to(local_rank)
+            # pixel_values_pose = batch["pixel_values_pose"].to(local_rank)
+            # clip_ref_image = batch["clip_ref_image"].to(local_rank)
+            # pixel_values_ref_img = batch["pixel_values_ref_img"].to(local_rank)
+            # drop_image_embeds = batch["drop_image_embeds"].to(local_rank) # torch.Size([bs])
+            # video_length = pixel_values.shape[1]
 
-            with torch.no_grad():
-                if not image_finetune:
-                    pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
-                    latents = vae.encode(pixel_values).latent_dist
-                    latents = latents.sample()
-                    latents = rearrange(
-                        latents, "(b f) c h w -> b c f h w", f=video_length
-                    )
-                else:
-                    latents = vae.encode(pixel_values).latent_dist
-                    latents = latents.sample()
-                latents = latents * 0.18215
+            # with torch.no_grad():
+            #     if not image_finetune:
+            #         pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
+            #         latents = vae.encode(pixel_values).latent_dist
+            #         latents = latents.sample()
+            #         latents = rearrange(
+            #             latents, "(b f) c h w -> b c f h w", f=video_length
+            #         )
+            #     else:
+            #         latents = vae.encode(pixel_values).latent_dist
+            #         latents = latents.sample()
+            #     latents = latents * 0.18215
 
-                latents_ref_img = vae.encode(pixel_values_ref_img).latent_dist
-                latents_ref_img = latents_ref_img.sample()
-                latents_ref_img = latents_ref_img * 0.18215
+            #     latents_ref_img = vae.encode(pixel_values_ref_img).latent_dist
+            #     latents_ref_img = latents_ref_img.sample()
+            #     latents_ref_img = latents_ref_img * 0.18215
 
-            # Sample noise that we'll add to the latents
-            noise = torch.randn_like(latents)
-            bsz = latents.shape[0]
+            # # Sample noise that we'll add to the latents
+            # noise = torch.randn_like(latents)
+            # bsz = latents.shape[0]
 
-            # Sample a random timestep for each video
-            timesteps = torch.randint(
-                0,
-                noise_scheduler.config.num_train_timesteps,
-                (bsz,),
-                device=latents.device,
-            )
-            timesteps = timesteps.long()
+            # # Sample a random timestep for each video
+            # timesteps = torch.randint(
+            #     0,
+            #     noise_scheduler.config.num_train_timesteps,
+            #     (bsz,),
+            #     device=latents.device,
+            # )
+            # timesteps = timesteps.long()
 
-            # Add noise to the latents according to the noise magnitude at each timestep
-            noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+            # # Add noise to the latents according to the noise magnitude at each timestep
+            # noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-            if not image_finetune:
-                pixel_values_pose = rearrange(
-                    pixel_values_pose, "b f c h w -> (b f) c h w"
-                )
-                latents_pose = poseguider(pixel_values_pose)
-                latents_pose = rearrange(
-                    latents_pose, "(b f) c h w -> b c f h w", f=video_length
-                )
-            else:
-                latents_pose = poseguider(pixel_values_pose)
+            # if not image_finetune:
+            #     pixel_values_pose = rearrange(
+            #         pixel_values_pose, "b f c h w -> (b f) c h w"
+            #     )
+            #     latents_pose = poseguider(pixel_values_pose)
+            #     latents_pose = rearrange(
+            #         latents_pose, "(b f) c h w -> b c f h w", f=video_length
+            #     )
+            # else:
+            #     latents_pose = poseguider(pixel_values_pose)
 
-            noisy_latents = noisy_latents + latents_pose
+            # noisy_latents = noisy_latents + latents_pose
 
-            # Get the text embedding for conditioning
-            with torch.no_grad():
-                # prompt_ids = tokenizer(
-                #     batch['text'], max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
-                # ).input_ids.to(latents.device)
-                # encoder_hidden_states = text_encoder(prompt_ids)[0]
-                encoder_hidden_states = clip_image_encoder(clip_ref_image).unsqueeze(1) # [bs,1,768]
+            # # Get the text embedding for conditioning
+            # with torch.no_grad():
+            #     # prompt_ids = tokenizer(
+            #     #     batch['text'], max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
+            #     # ).input_ids.to(latents.device)
+            #     # encoder_hidden_states = text_encoder(prompt_ids)[0]
+            #     encoder_hidden_states = clip_image_encoder(clip_ref_image).unsqueeze(1) # [bs,1,768]
             
-            # support cfg train
-            mask = drop_image_embeds > 0
-            mask = mask.unsqueeze(1).unsqueeze(2).expand_as(encoder_hidden_states)
-            encoder_hidden_states[mask] = 0
+            # # support cfg train
+            # mask = drop_image_embeds > 0
+            # mask = mask.unsqueeze(1).unsqueeze(2).expand_as(encoder_hidden_states)
+            # encoder_hidden_states[mask] = 0
 
-            # pdb.set_trace()
+            # # pdb.set_trace()
             
-            # Get the target for loss depending on the prediction type
-            if noise_scheduler.config.prediction_type == "epsilon":
-                target = noise
-            elif noise_scheduler.config.prediction_type == "v_prediction":
-                raise NotImplementedError
-            else:
-                raise ValueError(
-                    f"Unknown prediction type {noise_scheduler.config.prediction_type}"
-                )
+            # # Get the target for loss depending on the prediction type
+            # if noise_scheduler.config.prediction_type == "epsilon":
+            #     target = noise
+            # elif noise_scheduler.config.prediction_type == "v_prediction":
+            #     raise NotImplementedError
+            # else:
+            #     raise ValueError(
+            #         f"Unknown prediction type {noise_scheduler.config.prediction_type}"
+            #     )
 
-            # Predict the noise residual and compute loss
-            # Mixed-precision training
-            with torch.cuda.amp.autocast(enabled=mixed_precision_training):
-                ref_timesteps = torch.zeros_like(timesteps)
+            # # Predict the noise residual and compute loss
+            # # Mixed-precision training
+            # with torch.cuda.amp.autocast(enabled=mixed_precision_training):
+            #     ref_timesteps = torch.zeros_like(timesteps)
                 
-                # pdb.set_trace()
+            #     # pdb.set_trace()
                 
-                referencenet(latents_ref_img, ref_timesteps, encoder_hidden_states)
-                reference_control_reader.update(reference_control_writer)
+            #     referencenet(latents_ref_img, ref_timesteps, encoder_hidden_states)
+            #     reference_control_reader.update(reference_control_writer)
 
-                model_pred = unet(
-                    noisy_latents, timesteps, encoder_hidden_states
-                ).sample
-                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+            #     model_pred = unet(
+            #         noisy_latents, timesteps, encoder_hidden_states
+            #     ).sample
+            #     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 
                 
-            optimizer.zero_grad()
+            # optimizer.zero_grad()
 
-            # Backpropagate
-            if mixed_precision_training:
-                scaler.scale(loss).backward()
-                """ >>> gradient clipping >>> """
-                scaler.unscale_(optimizer)
-                # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
-                torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
-                """ <<< gradient clipping <<< """
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                loss.backward()
+            # # Backpropagate
+            # if mixed_precision_training:
+            #     scaler.scale(loss).backward()
+            #     """ >>> gradient clipping >>> """
+            #     scaler.unscale_(optimizer)
+            #     # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+            #     torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
+            #     """ <<< gradient clipping <<< """
+            #     scaler.step(optimizer)
+            #     scaler.update()
+            # else:
+            #     loss.backward()
                 
-                # pdb.set_trace()
+            #     # pdb.set_trace()
                 
-                # no_grad_params_poseguider = get_parameters_without_gradients(poseguider)
-                # no_grad_params_referencenet = get_parameters_without_gradients(referencenet)
-                # if len(no_grad_params_poseguider) != 0:
-                #     print("PoseGuider no grad params:", no_grad_params_poseguider)
-                # if len(no_grad_params_referencenet) != 0:
-                #     print("ReferenceNet no grad params:", no_grad_params_referencenet)
+            #     # no_grad_params_poseguider = get_parameters_without_gradients(poseguider)
+            #     # no_grad_params_referencenet = get_parameters_without_gradients(referencenet)
+            #     # if len(no_grad_params_poseguider) != 0:
+            #     #     print("PoseGuider no grad params:", no_grad_params_poseguider)
+            #     # if len(no_grad_params_referencenet) != 0:
+            #     #     print("ReferenceNet no grad params:", no_grad_params_referencenet)
                 
-                """ >>> gradient clipping >>> """
-                # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
-                torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
-                """ <<< gradient clipping <<< """
-                optimizer.step()
+            #     """ >>> gradient clipping >>> """
+            #     # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+            #     torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
+            #     """ <<< gradient clipping <<< """
+            #     optimizer.step()
 
-            lr_scheduler.step()
-            progress_bar.update(1)
+            # lr_scheduler.step()
+            # progress_bar.update(1)
 
-            reference_control_reader.clear()
-            reference_control_writer.clear()
+            # reference_control_reader.clear()
+            # reference_control_writer.clear()
             global_step += 1
 
             ### <<<< Training <<<< ###
@@ -593,7 +609,7 @@ def main(
                 wandb.log({"train_loss": loss.item()}, step=global_step)
 
             # Save checkpoint
-            if is_main_process and (
+            if True or is_main_process and (
                 global_step % checkpointing_steps == 0
                 or step == len(train_dataloader) - 1
             ):
@@ -616,6 +632,9 @@ def main(
                 else:
                     torch.save(state_dict, os.path.join(save_path, f"checkpoint-global_step-{global_step}.ckpt"))
                 logging.info(f"Saved state to {save_path} (global_step: {global_step})")
+                save_first_stage_weights(save_path)
+                args = AD(dist=False, world_size=1, rank=0, config='configs/prompts/my_animation_stage_1_202312241057.yaml')
+                animation_stage_1(args)
 
             # # Periodically validation
             # if is_main_process and (global_step % validation_steps == 0 or global_step in validation_steps_tuple):

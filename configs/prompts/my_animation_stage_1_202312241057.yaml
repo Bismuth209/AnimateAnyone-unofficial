@@ -8,9 +8,9 @@ pretrained_clip_path: "./checkpoints/clip-vit-base-patch32"
 # d = train_stage_1_UBC_768-2023-12-25T07-30-58
 # e = train_stage_1_UBC_768-2023-12-27T06-33-37
 
-pretrained_unet_path: "./checkpoints/train_stage_1_UBC_768-2023-12-25T07-30-58/unet_stage_1.ckpt"
-pretrained_poseguider_path: "./checkpoints/train_stage_1_UBC_768-2023-12-25T07-30-58/poseguider_stage_1.ckpt"
-pretrained_referencenet_path: "./checkpoints/train_stage_1_UBC_768-2023-12-25T07-30-58/referencenet_stage_1.ckpt"
+pretrained_unet_path: "./checkpoints/v6/unet_stage_1.ckpt"
+pretrained_poseguider_path: "./checkpoints/v6/poseguider_stage_1.ckpt"
+pretrained_referencenet_path: "./checkpoints/v6/referencenet_stage_1.ckpt"
 
 savename: null
 
