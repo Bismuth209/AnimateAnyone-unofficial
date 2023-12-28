@@ -618,8 +618,10 @@ def main(
                         state_dict,
                         os.path.join(save_path, f"checkpoint-epoch-{epoch+1}.ckpt"),
                     )
-                    if epoch > 0:
+                    try:
                         os.remove(os.path.join(save_path, f"checkpoint-epoch-{epoch}.ckpt"))
+                    except Exception as e:
+                        Warn(f'Warning: {e}')
                 else:
                     torch.save(state_dict, os.path.join(save_path, f"checkpoint-global_step-{global_step}.ckpt"))
                 logging.info(f"Saved state to {save_path} (global_step: {global_step})")
