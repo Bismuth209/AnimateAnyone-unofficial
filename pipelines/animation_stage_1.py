@@ -1,3 +1,4 @@
+from torch_snippets import AD
 import argparse
 import datetime
 import inspect
@@ -39,6 +40,7 @@ import pdb
 
 
 def main(args):
+    outputs = AD(images=[])
     *_, func_args = inspect.getargvalues(inspect.currentframe())
     func_args = dict(func_args)
 
@@ -53,6 +55,7 @@ def main(args):
         savedir = f"samples/{Path(args.config).stem}-{time_str}"
     else:
         savedir = f"samples/{config.savename}"
+    outputs.savedir = savedir
 
     if args.dist:
         dist.broadcast_object_list([savedir], 0)
@@ -257,10 +260,12 @@ def main(args):
                 f"{savedir}/videos/{source_name}_{video_name}/grid.mp4"
             )
             frame = vr[0].asnumpy()
+            output_path = f"{savedir}/videos/{source_name}_{video_name}/grid.png"
             cv2.imwrite(
-                f"{savedir}/videos/{source_name}_{video_name}/grid.png",
+                output_path,
                 cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
             )
+            outputs.images.append(output_path)
 
             if config.save_individual_videos:
                 save_videos_grid(
@@ -277,6 +282,7 @@ def main(args):
 
     if args.rank == 0:
         OmegaConf.save(config, f"{savedir}/config.yaml")
+    return outputs
 
 
 def distributed_main(device_id, args):

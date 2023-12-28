@@ -67,7 +67,7 @@ learning_rate:    1.e-5
 train_batch_size: 4
 
 max_train_epoch:      -1
-max_train_steps:      20000
+max_train_steps:      200000
 checkpointing_epochs: -1
 checkpointing_steps:  5000
 gradient_accumulation_steps: 1

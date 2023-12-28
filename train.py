@@ -599,14 +599,11 @@ def main(
 
             ### <<<< Training <<<< ###
 
-            # Wandb logging
-            if is_main_process and (not is_debug) and use_wandb:
-                wandb.log({"train_loss": loss.item()}, step=global_step)
-
             # Save checkpoint
             if is_main_process and (
-                global_step % checkpointing_steps == 0
-                or step == len(train_dataloader) - 1
+                global_step == 1
+                or global_step % checkpointing_steps == 0
+                or (epoch % 5 == 0 and step == len(train_dataloader) - 1) # save every 5th epoch
             ):
                 save_path = os.path.join(output_dir, f"checkpoints")
                 state_dict = {
@@ -627,8 +624,16 @@ def main(
                     torch.save(state_dict, os.path.join(save_path, f"checkpoint-global_step-{global_step}.ckpt"))
                 logging.info(f"Saved state to {save_path} (global_step: {global_step})")
                 save_first_stage_weights(save_path)
-                args = AD(dist=False, world_size=1, rank=0, config='configs/prompts/my_animation_stage_1_v6.yaml')
-                animation_stage_1(args)
+                args = AD(dist=False, world_size=1, rank=0, config='configs/prompts/v6.yaml')
+                animation_results = animation_stage_1(args)
+                images = animation_results.images
+                wandb.log({f'image_{ix}': wandb.Image(images[ix]) for ix in range(len(images))}, step=global_step)
+                import shutil
+                shutil.rmtree(animation_results.savedir)
+            
+            # Wandb logging
+            if is_main_process and (not is_debug) and use_wandb:
+                wandb.log({"train_loss": loss.item()}, step=global_step)
 
             logs = {
                 "step_loss": loss.detach().item(),

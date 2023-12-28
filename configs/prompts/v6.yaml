@@ -19,16 +19,20 @@ fusion_blocks: "full"
 
 
 seed:           [42]
-steps:          50
+steps:          25
 guidance_scale: 7.5
 # guidance_scale: 0
 
 source_image:
-  - "/home/ubuntu/data/ubc_fashion/train/91+fUG+fyBS.mp4"
-  - "/home/ubuntu/data/ubc_fashion/train/91+uwOT1POS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/test/A1-Lv00GAzS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/test/A191LVe3AzS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/test/A1xphfMiftS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/test/91tZgBKfXRS.mp4"
 video_path:
-  - "/home/ubuntu/data/ubc_fashion/train_dwpose/91+fUG+fyBS.mp4"
-  - "/home/ubuntu/data/ubc_fashion/train_dwpose/91+uwOT1POS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/test_dwpose/A1-Lv00GAzS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/test_dwpose/A191LVe3AzS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/test_dwpose/A1xphfMiftS.mp4"
+  - "/home/ubuntu/data/ubc_fashion/test_dwpose/91tZgBKfXRS.mp4"
 
 inference_config: "configs/inference/inference.yaml"
 size: 768
