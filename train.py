@@ -176,6 +176,7 @@ def main(
     global_seed: int = 42,
     is_debug: bool = False,
     folder_name=None,
+    pretrained_unet_path=None,
 ):
     check_min_version("0.21.4")
 
@@ -232,15 +233,14 @@ def main(
     clip_image_encoder = ReferenceEncoder(model_path=clip_model_path)
     poseguider = PoseGuider(noise_latent_channels=4)
     referencenet = ReferenceNet.from_pretrained(pretrained_model_path, subfolder="unet")
-    if not image_finetune:
-        poseguider_state_dict = torch.load(
-            poseguider_checkpoint_path, map_location="cpu"
-        )
-        referencenet_state_dict = torch.load(
-            referencenet_checkpoint_path, map_location="cpu"
-        )
+    try:
+        poseguider_state_dict = torch.load(poseguider_checkpoint_path, map_location="cpu")
+        referencenet_state_dict = torch.load(referencenet_checkpoint_path, map_location="cpu")
         poseguider.load_state_dict(poseguider_state_dict, strict=True)
         referencenet.load_state_dict(referencenet_state_dict, strict=True)
+        Info("Loaded poseguider and referencenet weights properly!")
+    except Exception as e:
+        Warn(f'Error while loading poseguider and referencnet weights...\n{e}')
 
     
 
@@ -256,9 +256,16 @@ def main(
         #     specific_model='unet_stage_2.ckpt'
         # )
     else:
-        unet = UNet2DConditionModel.from_pretrained(
-            pretrained_model_path, subfolder="unet"
-        )
+        if pretrained_unet_path is not None:
+            unet_config = UNet2DConditionModel.load_config(pretrained_model_path, subfolder="unet")
+            unet = UNet2DConditionModel.from_config(unet_config)
+            unet_state_dict = torch.load(pretrained_unet_path, map_location="cpu")
+            unet.load_state_dict(unet_state_dict, strict=False)
+            Info("Loaded weights for UNET!")
+        else:
+            unet = UNet2DConditionModel.from_pretrained(
+                pretrained_model_path, subfolder="unet"
+            )
 
     reference_control_writer = ReferenceNetAttention(
         referencenet,
@@ -408,18 +415,6 @@ def main(
         num_training_steps=max_train_steps * gradient_accumulation_steps,
     )
 
-    # # Validation pipeline
-    # if not image_finetune:
-    #     validation_pipeline = AnimationPipeline(
-    #         unet=unet, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler,
-    #     ).to("cuda")
-    # else:
-    #     validation_pipeline = StableDiffusionPipeline.from_pretrained(
-    #         pretrained_model_path,
-    #         unet=unet, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler, safety_checker=None,
-    #     )
-    # validation_pipeline.enable_vae_slicing()
-
     # DDP warpper
     unet.to(local_rank)
     unet = DDP(unet, device_ids=[local_rank], output_device=local_rank)
@@ -471,135 +466,135 @@ def main(
             ### >>>> Training >>>> ###
 
             # Convert videos to latent space
-            # pixel_values = batch["pixel_values"].to(local_rank)
-            # pixel_values_pose = batch["pixel_values_pose"].to(local_rank)
-            # clip_ref_image = batch["clip_ref_image"].to(local_rank)
-            # pixel_values_ref_img = batch["pixel_values_ref_img"].to(local_rank)
-            # drop_image_embeds = batch["drop_image_embeds"].to(local_rank) # torch.Size([bs])
-            # video_length = pixel_values.shape[1]
+            pixel_values = batch["pixel_values"].to(local_rank)
+            pixel_values_pose = batch["pixel_values_pose"].to(local_rank)
+            clip_ref_image = batch["clip_ref_image"].to(local_rank)
+            pixel_values_ref_img = batch["pixel_values_ref_img"].to(local_rank)
+            drop_image_embeds = batch["drop_image_embeds"].to(local_rank) # torch.Size([bs])
+            video_length = pixel_values.shape[1]
 
-            # with torch.no_grad():
-            #     if not image_finetune:
-            #         pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
-            #         latents = vae.encode(pixel_values).latent_dist
-            #         latents = latents.sample()
-            #         latents = rearrange(
-            #             latents, "(b f) c h w -> b c f h w", f=video_length
-            #         )
-            #     else:
-            #         latents = vae.encode(pixel_values).latent_dist
-            #         latents = latents.sample()
-            #     latents = latents * 0.18215
+            with torch.no_grad():
+                if not image_finetune:
+                    pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
+                    latents = vae.encode(pixel_values).latent_dist
+                    latents = latents.sample()
+                    latents = rearrange(
+                        latents, "(b f) c h w -> b c f h w", f=video_length
+                    )
+                else:
+                    latents = vae.encode(pixel_values).latent_dist
+                    latents = latents.sample()
+                latents = latents * 0.18215
 
-            #     latents_ref_img = vae.encode(pixel_values_ref_img).latent_dist
-            #     latents_ref_img = latents_ref_img.sample()
-            #     latents_ref_img = latents_ref_img * 0.18215
+                latents_ref_img = vae.encode(pixel_values_ref_img).latent_dist
+                latents_ref_img = latents_ref_img.sample()
+                latents_ref_img = latents_ref_img * 0.18215
 
-            # # Sample noise that we'll add to the latents
-            # noise = torch.randn_like(latents)
-            # bsz = latents.shape[0]
+            # Sample noise that we'll add to the latents
+            noise = torch.randn_like(latents)
+            bsz = latents.shape[0]
 
-            # # Sample a random timestep for each video
-            # timesteps = torch.randint(
-            #     0,
-            #     noise_scheduler.config.num_train_timesteps,
-            #     (bsz,),
-            #     device=latents.device,
-            # )
-            # timesteps = timesteps.long()
+            # Sample a random timestep for each video
+            timesteps = torch.randint(
+                0,
+                noise_scheduler.config.num_train_timesteps,
+                (bsz,),
+                device=latents.device,
+            )
+            timesteps = timesteps.long()
 
-            # # Add noise to the latents according to the noise magnitude at each timestep
-            # noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+            # Add noise to the latents according to the noise magnitude at each timestep
+            noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-            # if not image_finetune:
-            #     pixel_values_pose = rearrange(
-            #         pixel_values_pose, "b f c h w -> (b f) c h w"
-            #     )
-            #     latents_pose = poseguider(pixel_values_pose)
-            #     latents_pose = rearrange(
-            #         latents_pose, "(b f) c h w -> b c f h w", f=video_length
-            #     )
-            # else:
-            #     latents_pose = poseguider(pixel_values_pose)
+            if not image_finetune:
+                pixel_values_pose = rearrange(
+                    pixel_values_pose, "b f c h w -> (b f) c h w"
+                )
+                latents_pose = poseguider(pixel_values_pose)
+                latents_pose = rearrange(
+                    latents_pose, "(b f) c h w -> b c f h w", f=video_length
+                )
+            else:
+                latents_pose = poseguider(pixel_values_pose)
 
-            # noisy_latents = noisy_latents + latents_pose
+            noisy_latents = noisy_latents + latents_pose
 
-            # # Get the text embedding for conditioning
-            # with torch.no_grad():
-            #     # prompt_ids = tokenizer(
-            #     #     batch['text'], max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
-            #     # ).input_ids.to(latents.device)
-            #     # encoder_hidden_states = text_encoder(prompt_ids)[0]
-            #     encoder_hidden_states = clip_image_encoder(clip_ref_image).unsqueeze(1) # [bs,1,768]
+            # Get the text embedding for conditioning
+            with torch.no_grad():
+                # prompt_ids = tokenizer(
+                #     batch['text'], max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
+                # ).input_ids.to(latents.device)
+                # encoder_hidden_states = text_encoder(prompt_ids)[0]
+                encoder_hidden_states = clip_image_encoder(clip_ref_image).unsqueeze(1) # [bs,1,768]
             
-            # # support cfg train
-            # mask = drop_image_embeds > 0
-            # mask = mask.unsqueeze(1).unsqueeze(2).expand_as(encoder_hidden_states)
-            # encoder_hidden_states[mask] = 0
+            # support cfg train
+            mask = drop_image_embeds > 0
+            mask = mask.unsqueeze(1).unsqueeze(2).expand_as(encoder_hidden_states)
+            encoder_hidden_states[mask] = 0
 
-            # # pdb.set_trace()
+            # pdb.set_trace()
             
-            # # Get the target for loss depending on the prediction type
-            # if noise_scheduler.config.prediction_type == "epsilon":
-            #     target = noise
-            # elif noise_scheduler.config.prediction_type == "v_prediction":
-            #     raise NotImplementedError
-            # else:
-            #     raise ValueError(
-            #         f"Unknown prediction type {noise_scheduler.config.prediction_type}"
-            #     )
+            # Get the target for loss depending on the prediction type
+            if noise_scheduler.config.prediction_type == "epsilon":
+                target = noise
+            elif noise_scheduler.config.prediction_type == "v_prediction":
+                raise NotImplementedError
+            else:
+                raise ValueError(
+                    f"Unknown prediction type {noise_scheduler.config.prediction_type}"
+                )
 
-            # # Predict the noise residual and compute loss
-            # # Mixed-precision training
-            # with torch.cuda.amp.autocast(enabled=mixed_precision_training):
-            #     ref_timesteps = torch.zeros_like(timesteps)
+            # Predict the noise residual and compute loss
+            # Mixed-precision training
+            with torch.cuda.amp.autocast(enabled=mixed_precision_training):
+                ref_timesteps = torch.zeros_like(timesteps)
                 
-            #     # pdb.set_trace()
+                # pdb.set_trace()
                 
-            #     referencenet(latents_ref_img, ref_timesteps, encoder_hidden_states)
-            #     reference_control_reader.update(reference_control_writer)
+                referencenet(latents_ref_img, ref_timesteps, encoder_hidden_states)
+                reference_control_reader.update(reference_control_writer)
 
-            #     model_pred = unet(
-            #         noisy_latents, timesteps, encoder_hidden_states
-            #     ).sample
-            #     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                model_pred = unet(
+                    noisy_latents, timesteps, encoder_hidden_states
+                ).sample
+                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 
                 
-            # optimizer.zero_grad()
+            optimizer.zero_grad()
 
-            # # Backpropagate
-            # if mixed_precision_training:
-            #     scaler.scale(loss).backward()
-            #     """ >>> gradient clipping >>> """
-            #     scaler.unscale_(optimizer)
-            #     # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
-            #     torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
-            #     """ <<< gradient clipping <<< """
-            #     scaler.step(optimizer)
-            #     scaler.update()
-            # else:
-            #     loss.backward()
+            # Backpropagate
+            if mixed_precision_training:
+                scaler.scale(loss).backward()
+                """ >>> gradient clipping >>> """
+                scaler.unscale_(optimizer)
+                # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
+                """ <<< gradient clipping <<< """
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
                 
-            #     # pdb.set_trace()
+                # pdb.set_trace()
                 
-            #     # no_grad_params_poseguider = get_parameters_without_gradients(poseguider)
-            #     # no_grad_params_referencenet = get_parameters_without_gradients(referencenet)
-            #     # if len(no_grad_params_poseguider) != 0:
-            #     #     print("PoseGuider no grad params:", no_grad_params_poseguider)
-            #     # if len(no_grad_params_referencenet) != 0:
-            #     #     print("ReferenceNet no grad params:", no_grad_params_referencenet)
+                # no_grad_params_poseguider = get_parameters_without_gradients(poseguider)
+                # no_grad_params_referencenet = get_parameters_without_gradients(referencenet)
+                # if len(no_grad_params_poseguider) != 0:
+                #     print("PoseGuider no grad params:", no_grad_params_poseguider)
+                # if len(no_grad_params_referencenet) != 0:
+                #     print("ReferenceNet no grad params:", no_grad_params_referencenet)
                 
-            #     """ >>> gradient clipping >>> """
-            #     # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
-            #     torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
-            #     """ <<< gradient clipping <<< """
-            #     optimizer.step()
+                """ >>> gradient clipping >>> """
+                # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
+                """ <<< gradient clipping <<< """
+                optimizer.step()
 
-            # lr_scheduler.step()
-            # progress_bar.update(1)
+            lr_scheduler.step()
+            progress_bar.update(1)
 
-            # reference_control_reader.clear()
-            # reference_control_writer.clear()
+            reference_control_reader.clear()
+            reference_control_writer.clear()
             global_step += 1
 
             ### <<<< Training <<<< ###
@@ -609,7 +604,7 @@ def main(
                 wandb.log({"train_loss": loss.item()}, step=global_step)
 
             # Save checkpoint
-            if True or is_main_process and (
+            if is_main_process and (
                 global_step % checkpointing_steps == 0
                 or step == len(train_dataloader) - 1
             ):
@@ -619,8 +614,7 @@ def main(
                     "global_step": global_step,
                     "unet_state_dict": unet.module.state_dict(),
                     "poseguider_state_dict": poseguider.state_dict(),
-                    "referencenet_state_dict": referencenet.state_dict(),
-                    
+                    "referencenet_state_dict": referencenet.module.state_dict(),
                 }
                 if step == len(train_dataloader) - 1:
                     torch.save(
@@ -633,57 +627,8 @@ def main(
                     torch.save(state_dict, os.path.join(save_path, f"checkpoint-global_step-{global_step}.ckpt"))
                 logging.info(f"Saved state to {save_path} (global_step: {global_step})")
                 save_first_stage_weights(save_path)
-                args = AD(dist=False, world_size=1, rank=0, config='configs/prompts/my_animation_stage_1_202312241057.yaml')
+                args = AD(dist=False, world_size=1, rank=0, config='configs/prompts/my_animation_stage_1_v6.yaml')
                 animation_stage_1(args)
-
-            # # Periodically validation
-            # if is_main_process and (global_step % validation_steps == 0 or global_step in validation_steps_tuple):
-            #     samples = []
-
-            #     generator = torch.Generator(device=latents.device)
-            #     generator.manual_seed(global_seed)
-
-            #     height = train_data.sample_size[0] if not isinstance(train_data.sample_size, int) else train_data.sample_size
-            #     width  = train_data.sample_size[1] if not isinstance(train_data.sample_size, int) else train_data.sample_size
-
-            #     prompts = validation_data.prompts[:2] if global_step < 1000 and (not image_finetune) else validation_data.prompts
-
-            #     for idx, prompt in enumerate(prompts):
-            #         if not image_finetune:
-            #             sample = validation_pipeline(
-            #                 prompt,
-            #                 generator    = generator,
-            #                 video_length = train_data.sample_n_frames,
-            #                 height       = height,
-            #                 width        = width,
-            #                 **validation_data,
-            #             ).videos
-            #             save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
-            #             samples.append(sample)
-
-            #         else:
-            #             sample = validation_pipeline(
-            #                 prompt,
-            #                 generator           = generator,
-            #                 height              = height,
-            #                 width               = width,
-            #                 num_inference_steps = validation_data.get("num_inference_steps", 25),
-            #                 guidance_scale      = validation_data.get("guidance_scale", 8.),
-            #             ).images[0]
-            #             sample = torchvision.transforms.functional.to_tensor(sample)
-            #             samples.append(sample)
-
-            # if not image_finetune:
-            #     samples = torch.concat(samples)
-            #     save_path = f"{output_dir}/samples/sample-{global_step}.gif"
-            #     save_videos_grid(samples, save_path)
-
-            # else:
-            #     samples = torch.stack(samples)
-            #     save_path = f"{output_dir}/samples/sample-{global_step}.png"
-            #     torchvision.utils.save_image(samples, save_path, nrow=4)
-
-            # logging.info(f"Saved samples to {save_path}")
 
             logs = {
                 "step_loss": loss.detach().item(),

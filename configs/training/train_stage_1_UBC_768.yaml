@@ -6,6 +6,7 @@ pretrained_model_path: "./checkpoints/stable-diffusion-v1-5"
 clip_model_path: "./checkpoints/clip-vit-base-patch32"
 poseguider_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/poseguider_stage_1.ckpt"
 referencenet_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/referencenet_stage_1.ckpt"
+pretrained_unet_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/unet_stage_1.ckpt"
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
