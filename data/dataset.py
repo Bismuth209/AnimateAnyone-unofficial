@@ -8,6 +8,7 @@ import torch
 import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
 from transformers import CLIPProcessor
+from torch_snippets import resize
 
 # adapt from https://github.com/guoyww/AnimateDiff/blob/main/animatediff/data/dataset.py
 
@@ -248,9 +249,10 @@ class UBC_Fashion(Dataset):
         ref_img_idx = random.randint(0, video_length - 1)
         ref_img = video_reader[ref_img_idx]
         ref_img_pil = Image.fromarray(ref_img.asnumpy())
+        ref_img_pil = resize(ref_img_pil, 224)
 
         clip_ref_image = self.clip_image_processor(
-            images=ref_img_pil, return_tensors="pt"
+            images=ref_img_pil, return_tensors="pt", 
         ).pixel_values
 
         pixel_values_ref_img = (

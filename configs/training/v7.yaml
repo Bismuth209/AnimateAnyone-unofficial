@@ -1,12 +1,12 @@
 image_finetune: true
 
 output_dir: "outputs/"
-folder_name: "v6"
+folder_name: "v7"
 pretrained_model_path: "./checkpoints/stable-diffusion-v1-5"
 clip_model_path: "./checkpoints/clip-vit-base-patch32"
-poseguider_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/poseguider_stage_1.ckpt"
-referencenet_checkpoint_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/referencenet_stage_1.ckpt"
-pretrained_unet_path: "./checkpoints/train_stage_1_UBC_768-2023-12-24T05-50-33/unet_stage_1.ckpt"
+poseguider_checkpoint_path: "./checkpoints/v6/poseguider_stage_1.ckpt"
+referencenet_checkpoint_path: "./checkpoints/v6/referencenet_stage_1.ckpt"
+pretrained_unet_path: "./checkpoints/v6/unet_stage_1.ckpt"
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
@@ -85,4 +85,10 @@ enable_xformers_memory_efficient_attention: False
 
 is_debug: False
 
-# Steps:   5%|█    | 10002/200000 [15:43:15<1939:45:32, 36.75s/it, lr=1e-5, step_loss=0.0562]
+# Steps:  14%|███████████████                                                                                               | 8212/60000 [12:32:06<77:11:34
+# Steps:  28%|██████████████████████████████▎                                                                              | 16713/60000 [25:30:29<64:45:23,  5.39s/it, lr=1e-5, step_loss=0.0222]^
+# Steps:   9%|█████████████▌                                                                                                 | 5515/60000 [8:24:46<81:21:36,  5.38s/it, lr=1e-5, step_loss=0.0227]
+# Gradient accumulation of 1 with batch size of 4 = 
+# Total iterations = 4 * (8212+16713+5515) = 121760
+# Total required iterations = 30000 x 64 = 1920000
+# Remaining iterations = 1920000 - 121760 = 1798240 = 28000 iterations with batch size 64
