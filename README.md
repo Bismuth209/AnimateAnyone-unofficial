@@ -60,7 +60,7 @@ If you only have a GPU with 24 GB of VRAM, I recommend inference at resolution 5
 
 
 ## Training
-
+### Original AnimateAnyone Architecture (It is difficult to control pose when training on a small dataset.)
 #### First Stage
 
 ```python
@@ -73,11 +73,17 @@ torchrun --nnodes=8 --nproc_per_node=8 train.py --config configs/training/train_
 torchrun --nnodes=8 --nproc_per_node=8 train.py --config configs/training/train_stage_2.yaml
 ```
 
+### Our Method (A more dense pose control scheme, the number of parameters is still small.)
+```python
+torchrun --nnodes=8 --nproc_per_node=8 train_hack.py --config configs/training/train_stage_1.yaml
+```
+
+#### Second Stage
+
+```python
+torchrun --nnodes=8 --nproc_per_node=8 train_hack.py --config configs/training/train_stage_2.yaml
+```
+
 
 ## Acknowledgements
 Special thanks to the original authors of the [Animate Anyone](https://humanaigc.github.io/animate-anyone/) project and the contributors to the [magic-animate](https://github.com/magic-research/magic-animate/tree/main) and [AnimateDiff](https://github.com/guoyww/AnimateDiff) repository for their open research and foundational work that inspired this unofficial implementation.
-
-## Email
-guoqin@stu.pku.edu.cn
-
-My response may be slow, please don't ask me nonsense questions.
