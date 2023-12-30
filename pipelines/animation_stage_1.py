@@ -25,6 +25,7 @@ from models.ReferenceNet_attention import ReferenceNetAttention
 from models.unet import UNet3DConditionModel
 from pipelines.pipeline_stage_1 import AnimationAnyonePipeline
 from diffusers.models import UNet2DConditionModel
+from models.hack_unet2d import Hack_UNet2DConditionModel as UNet2DConditionModel
 
 from utils.util import save_videos_grid
 from utils.dist_tools import distributed_init
@@ -72,24 +73,34 @@ def main(args):
 
     # text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path, subfolder="text_encoder")
     text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path)
-    
+
     if config.pretrained_unet_path is not None:
-        unet_config = UNet2DConditionModel.load_config(config.pretrained_model_path, subfolder="unet")
+        unet_config = UNet2DConditionModel.load_config(
+            config.pretrained_model_path, subfolder="unet"
+        )
         unet = UNet2DConditionModel.from_config(unet_config)
         unet_state_dict = torch.load(config.pretrained_unet_path, map_location="cpu")
         unet.load_state_dict(unet_state_dict, strict=False)
     else:
-        unet = UNet2DConditionModel.from_pretrained(config.pretrained_model_path, subfolder="unet")
+        unet = UNet2DConditionModel.from_pretrained(
+            config.pretrained_model_path, subfolder="unet"
+        )
 
     vae = AutoencoderKL.from_pretrained(config.pretrained_model_path, subfolder="vae")
-    
-    poseguider = PoseGuider.from_pretrained(pretrained_model_path=config.pretrained_poseguider_path)
+
+    poseguider = PoseGuider.from_pretrained(
+        pretrained_model_path=config.pretrained_poseguider_path
+    )
     poseguider.eval()
     clip_image_encoder = ReferenceEncoder(model_path=config.pretrained_clip_path)
-    clip_image_processor = CLIPProcessor.from_pretrained(config.pretrained_clip_path,local_files_only=True)
-    
-    referencenet = ReferenceNet.load_referencenet(pretrained_model_path=config.pretrained_referencenet_path)
-    
+    clip_image_processor = CLIPProcessor.from_pretrained(
+        config.pretrained_clip_path, local_files_only=True
+    )
+
+    referencenet = ReferenceNet.load_referencenet(
+        pretrained_model_path=config.pretrained_referencenet_path
+    )
+
     reference_control_writer = None
     reference_control_reader = None
 
@@ -190,7 +201,7 @@ def main(args):
                 mode="edge",
             )
 
-        idx_control = len(control)//2 # random.randint(0, control.shape[0] - 1)
+        idx_control = len(control) // 2  # random.randint(0, control.shape[0] - 1)
         control = control[idx_control]  # (256, 256, 3)
 
         generator = torch.Generator(device=torch.device("cuda:0"))

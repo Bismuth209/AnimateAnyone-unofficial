@@ -808,8 +808,7 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             image_embeddings = torch.cat([negative_image_embeddings, image_embeddings])
 
         context_scheduler = get_context_scheduler(context_schedule)
-        
-        
+
         #### pose condition ####
         pixel_transforms = transforms.Compose(
             [
@@ -842,15 +841,21 @@ class AnimationAnyonePipeline(DiffusionPipeline):
         # latents_pose = rearrange(latents_pose, "(b f) c h w -> b c f h w", f=video_length)
         # if do_classifier_free_guidance: latents_pose = latents_pose.repeat(2,1,1,1,1)
         #### pose condition ####
-        
-        for i, t in tqdm(enumerate(timesteps), total=len(timesteps), disable=(rank!=0)):
-            
+
+        for i, t in tqdm(
+            enumerate(timesteps), total=len(timesteps), disable=(rank != 0)
+        ):
             # print("### ",i," : ",latents.size(),latents.min(),latents.max()," ###")
             # print(t)
-            
+
             if i == 0:
                 referencenet(
-                    ref_image_latents.repeat(context_batch_size * (2 if do_classifier_free_guidance else 1), 1, 1, 1),
+                    ref_image_latents.repeat(
+                        context_batch_size * (2 if do_classifier_free_guidance else 1),
+                        1,
+                        1,
+                        1,
+                    ),
                     torch.zeros_like(t),
                     encoder_hidden_states=image_embeddings,
                     return_dict=False,
@@ -860,23 +865,27 @@ class AnimationAnyonePipeline(DiffusionPipeline):
             latent_model_input = (
                 torch.cat([latents] * 2) if do_classifier_free_guidance else latents
             )
-            latent_model_input = (
-                self.scheduler.scale_model_input(latent_model_input, t) + latents_pose
-            )
+            latent_model_input = self.scheduler.scale_model_input(
+                latent_model_input, t
+            )  # + latents_pose
 
             noise_pred = self.unet(
                 latent_model_input,
                 t,
                 encoder_hidden_states=image_embeddings,
                 return_dict=False,
+                latent_pose=latents_pose,
             )[0]
 
             if do_classifier_free_guidance:
-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-            
-            latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
-            
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + guidance_scale * (
+                    noise_pred_text - noise_pred_uncond
+                )
+
+            latents = self.scheduler.step(
+                noise_pred, t, latents, **extra_step_kwargs, return_dict=False
+            )[0]
 
         # interpolation_factor = 1
         # latents = self.interpolate_latents(latents, interpolation_factor, device)

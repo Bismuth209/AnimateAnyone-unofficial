@@ -1,3 +1,4 @@
+#! /home/ubuntu/miniconda3/envs/manimate/bin/python
 from torch_snippets import *
 import glob
 import os
@@ -31,7 +32,7 @@ def save_first_stage_weights(ckpt_path, stage):
     torch.save(unet_state_dict, unet_ckpt_path)
 
 if __name__ == '__main__':
-    ckpt_path = './outputs/train_stage_1_UBC_768-2023-12-24T05-50-33/checkpoints/'
+    ckpt_path = './outputs/v6/checkpoints/'
     # ckpt_path = sys.argv[1]
     stage = 1
     save_first_stage_weights(ckpt_path, stage)

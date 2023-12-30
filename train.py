@@ -27,7 +27,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 import diffusers
 from diffusers import AutoencoderKL, DDIMScheduler
-from diffusers.models import UNet2DConditionModel
+
+# from diffusers.models import UNet2DConditionModel
+from models.hack_unet2d import Hack_UNet2DConditionModel as UNet2DConditionModel
+
 # from diffusers.pipelines import StableDiffusionPipeline
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version
@@ -38,11 +41,14 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 # from data.dataset import WebVid10M
 from data.dataset import TikTok, collate_fn, UBC_Fashion
-from models.unet import UNet3DConditionModel
+
+# from models.unet import UNet3DConditionModel
+from models.hack_unet3d import Hack_UNet3DConditionModel as UNet3DConditionModel
 
 # from animatediff.pipelines.pipeline_animation import AnimationPipeline
 from utils.util import save_videos_grid, zero_rank_print
 from models.ReferenceEncoder import ReferenceEncoder
+
 from models.PoseGuider import PoseGuider
 from models.ReferenceNet import ReferenceNet
 from models.ReferenceNet_attention import ReferenceNetAttention
@@ -60,26 +66,28 @@ def save_first_stage_weights(ckpt_path, stage=1):
     else:
         print("No checkpoint files found in the specified folder.")
     ckpt_path = latest_checkpoint
-    to = f'checkpoints/{stem(parent(parent(ckpt_path)))}/'
+    fldr_name = P(ckpt_path).parent.parent
+    to = str(fldr_name).split("/")[-1]
+    to = f"checkpoints/{to}/"
     makedir(to)
-    print(to)
+    Info(f"Saving weights to {to}")
 
-    full_state_dict = torch.load(ckpt_path, map_location='cpu')
+    full_state_dict = torch.load(ckpt_path, map_location="cpu")
 
-    poseguider_state_dict = full_state_dict['poseguider_state_dict']
-    referencenet_state_dict = full_state_dict['referencenet_state_dict']
-    unet_state_dict = full_state_dict['unet_state_dict']
+    poseguider_state_dict = full_state_dict["poseguider_state_dict"]
+    referencenet_state_dict = full_state_dict["referencenet_state_dict"]
+    unet_state_dict = full_state_dict["unet_state_dict"]
 
-    poseguider_ckpt_path = f'{to}/poseguider_stage_{stage}.ckpt'
-    referencenet_ckpt_path = f'{to}/referencenet_stage_{stage}.ckpt'
-    unet_ckpt_path = f'{to}/unet_stage_{stage}.ckpt'
+    poseguider_ckpt_path = f"{to}/poseguider_stage_{stage}.ckpt"
+    referencenet_ckpt_path = f"{to}/referencenet_stage_{stage}.ckpt"
+    unet_ckpt_path = f"{to}/unet_stage_{stage}.ckpt"
 
     torch.save(poseguider_state_dict, poseguider_ckpt_path)
     torch.save(referencenet_state_dict, referencenet_ckpt_path)
     torch.save(unet_state_dict, unet_ckpt_path)
 
 
-def init_dist(launcher="slurm", backend='nccl', port=28888, **kwargs):
+def init_dist(launcher="slurm", backend="nccl", port=28888, **kwargs):
     """Initializes distributed environment."""
     if launcher == "pytorch":
         rank = int(os.environ["RANK"])
@@ -118,7 +126,7 @@ def get_parameters_without_gradients(model):
 
     Args:
     model (torch.nn.Module): The model to check.
-    
+
     Returns:
     List[str]: A list of parameter names without gradients.
     """
@@ -158,8 +166,7 @@ def main(
     scale_lr: bool = False,
     lr_warmup_steps: int = 0,
     lr_scheduler: str = "constant",
-
-    trainable_modules: Tuple[str] = (None, ),
+    trainable_modules: Tuple[str] = (None,),
     num_workers: int = 8,
     train_batch_size: int = 1,
     adam_beta1: float = 0.9,
@@ -181,9 +188,9 @@ def main(
     check_min_version("0.21.4")
 
     # Initialize distributed training
-    local_rank      = init_dist(launcher=launcher, port=28888)
-    global_rank     = dist.get_rank()
-    num_processes   = dist.get_world_size()
+    local_rank = init_dist(launcher=launcher, port=28888)
+    global_rank = dist.get_rank()
+    num_processes = dist.get_world_size()
     # num_processes   = 0
     is_main_process = global_rank == 0
 
@@ -231,18 +238,28 @@ def main(
     # tokenizer    = CLIPTokenizer.from_pretrained(pretrained_model_path, subfolder="tokenizer")
     # text_encoder = CLIPTextModel.from_pretrained(pretrained_model_path, subfolder="text_encoder")
     clip_image_encoder = ReferenceEncoder(model_path=clip_model_path)
-    poseguider = PoseGuider(noise_latent_channels=4)
+    poseguider = PoseGuider(noise_latent_channels=320)
     referencenet = ReferenceNet.from_pretrained(pretrained_model_path, subfolder="unet")
     try:
-        poseguider_state_dict = torch.load(poseguider_checkpoint_path, map_location="cpu")
-        referencenet_state_dict = torch.load(referencenet_checkpoint_path, map_location="cpu")
-        poseguider.load_state_dict(poseguider_state_dict, strict=True)
-        referencenet.load_state_dict(referencenet_state_dict, strict=True)
-        Info("Loaded poseguider and referencenet weights properly!")
-    except Exception as e:
-        Warn(f'Error while loading poseguider and referencnet weights...\n{e}')
+        if poseguider_checkpoint_path != "" and P(poseguider_checkpoint_path).exists():
+            poseguider_state_dict = torch.load(
+                poseguider_checkpoint_path, map_location="cpu"
+            )
+            poseguider.load_state_dict(poseguider_state_dict, strict=True)
+            Info("Loaded poseguider weights properly!")
 
-    
+        if (
+            referencenet_checkpoint_path != ""
+            and P(referencenet_checkpoint_path).exists()
+        ):
+            referencenet_state_dict = torch.load(
+                referencenet_checkpoint_path, map_location="cpu"
+            )
+            referencenet.load_state_dict(referencenet_state_dict, strict=True)
+            Info("Loaded referencenet weights properly!")
+
+    except Exception as e:
+        Warn(f"Error while loading poseguider and referencnet weights...\n{e}")
 
     if not image_finetune:
         unet = UNet3DConditionModel.from_pretrained_2d(
@@ -251,13 +268,15 @@ def main(
             unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs),
         )
         # unet = UNet3DConditionModel.from_pretrained_2d(
-        #     'checkpoints/train_stage_2_UBC_768-2023-12-26T04-55-42', 
-        #     unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs), 
+        #     'checkpoints/train_stage_2_UBC_768-2023-12-26T04-55-42',
+        #     unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs),
         #     specific_model='unet_stage_2.ckpt'
         # )
     else:
-        if pretrained_unet_path is not None:
-            unet_config = UNet2DConditionModel.load_config(pretrained_model_path, subfolder="unet")
+        if pretrained_unet_path != "" and P(pretrained_unet_path).exists():
+            unet_config = UNet2DConditionModel.load_config(
+                pretrained_model_path, subfolder="unet"
+            )
             unet = UNet2DConditionModel.from_config(unet_config)
             unet_state_dict = torch.load(pretrained_unet_path, map_location="cpu")
             unet.load_state_dict(unet_state_dict, strict=False)
@@ -272,6 +291,7 @@ def main(
         do_classifier_free_guidance=False,
         mode="write",
         fusion_blocks=fusion_blocks,
+        batch_size=train_batch_size,
         is_image=image_finetune,
     )
     reference_control_reader = ReferenceNetAttention(
@@ -279,6 +299,7 @@ def main(
         do_classifier_free_guidance=False,
         mode="read",
         fusion_blocks=fusion_blocks,
+        batch_size=train_batch_size,
         is_image=image_finetune,
     )
 
@@ -294,8 +315,9 @@ def main(
             else unet_checkpoint_path
         )
 
-        m, u = unet.load_state_dict(state_dict, strict=False)
+        m, u = unet.load_state_dict(state_dict, strict=True)
         zero_rank_print(f"missing keys: {len(m)}, unexpected keys: {len(u)}")
+        del state_dict
         assert len(u) == 0
 
     # Freeze vae and text_encoder
@@ -318,17 +340,17 @@ def main(
         referencenet.requires_grad_(True)
     else:
         poseguider.requires_grad_(False)
-        referencenet.requires_grad_(False)    
-                   
-    
+        referencenet.requires_grad_(False)
+
     trainable_params = list(filter(lambda p: p.requires_grad, unet.parameters()))
     if image_finetune:
-        trainable_params += list(filter(lambda p: p.requires_grad, poseguider.parameters())) + \
-                   list(filter(lambda p: p.requires_grad, referencenet.parameters()))
-    
+        trainable_params += list(
+            filter(lambda p: p.requires_grad, poseguider.parameters())
+        ) + list(filter(lambda p: p.requires_grad, referencenet.parameters()))
+
     # print(len(trainable_params))
     # exit(0)
-    
+
     optimizer = torch.optim.AdamW(
         trainable_params,
         lr=learning_rate,
@@ -369,7 +391,7 @@ def main(
     # train_dataset = WebVid10M(**train_data, is_image=image_finetune)
     # train_dataset = TikTok(**train_data, is_image=image_finetune)
     train_dataset = UBC_Fashion(**train_data, is_image=image_finetune)
-    
+
     distributed_sampler = DistributedSampler(
         train_dataset,
         num_replicas=num_processes,
@@ -418,10 +440,12 @@ def main(
     # DDP warpper
     unet.to(local_rank)
     unet = DDP(unet, device_ids=[local_rank], output_device=local_rank)
-    
+
     if image_finetune:
         poseguider = DDP(poseguider, device_ids=[local_rank], output_device=local_rank)
-        referencenet = DDP(referencenet, device_ids=[local_rank], output_device=local_rank)
+        referencenet = DDP(
+            referencenet, device_ids=[local_rank], output_device=local_rank
+        )
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(
@@ -460,8 +484,7 @@ def main(
         unet.train()
         poseguider.train()
         referencenet.train()
-        
-        
+
         for step, batch in enumerate(train_dataloader):
             ### >>>> Training >>>> ###
 
@@ -470,7 +493,9 @@ def main(
             pixel_values_pose = batch["pixel_values_pose"].to(local_rank)
             clip_ref_image = batch["clip_ref_image"].to(local_rank)
             pixel_values_ref_img = batch["pixel_values_ref_img"].to(local_rank)
-            drop_image_embeds = batch["drop_image_embeds"].to(local_rank) # torch.Size([bs])
+            drop_image_embeds = batch["drop_image_embeds"].to(
+                local_rank
+            )  # torch.Size([bs])
             video_length = pixel_values.shape[1]
 
             with torch.no_grad():
@@ -517,7 +542,7 @@ def main(
             else:
                 latents_pose = poseguider(pixel_values_pose)
 
-            noisy_latents = noisy_latents + latents_pose
+            # noisy_latents = noisy_latents + latents_pose
 
             # Get the text embedding for conditioning
             with torch.no_grad():
@@ -525,15 +550,17 @@ def main(
                 #     batch['text'], max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
                 # ).input_ids.to(latents.device)
                 # encoder_hidden_states = text_encoder(prompt_ids)[0]
-                encoder_hidden_states = clip_image_encoder(clip_ref_image).unsqueeze(1) # [bs,1,768]
-            
+                encoder_hidden_states = clip_image_encoder(clip_ref_image).unsqueeze(
+                    1
+                )  # [bs,1,768]
+
             # support cfg train
             mask = drop_image_embeds > 0
             mask = mask.unsqueeze(1).unsqueeze(2).expand_as(encoder_hidden_states)
             encoder_hidden_states[mask] = 0
 
             # pdb.set_trace()
-            
+
             # Get the target for loss depending on the prediction type
             if noise_scheduler.config.prediction_type == "epsilon":
                 target = noise
@@ -548,18 +575,20 @@ def main(
             # Mixed-precision training
             with torch.cuda.amp.autocast(enabled=mixed_precision_training):
                 ref_timesteps = torch.zeros_like(timesteps)
-                
+
                 # pdb.set_trace()
-                
+
                 referencenet(latents_ref_img, ref_timesteps, encoder_hidden_states)
                 reference_control_reader.update(reference_control_writer)
 
                 model_pred = unet(
-                    noisy_latents, timesteps, encoder_hidden_states
+                    sample=noisy_latents,
+                    timestep=timesteps,
+                    encoder_hidden_states=encoder_hidden_states,
+                    latent_pose=latents_pose,
                 ).sample
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-                
-                
+
             optimizer.zero_grad()
 
             # Backpropagate
@@ -574,16 +603,16 @@ def main(
                 scaler.update()
             else:
                 loss.backward()
-                
+
                 # pdb.set_trace()
-                
+
                 # no_grad_params_poseguider = get_parameters_without_gradients(poseguider)
                 # no_grad_params_referencenet = get_parameters_without_gradients(referencenet)
                 # if len(no_grad_params_poseguider) != 0:
                 #     print("PoseGuider no grad params:", no_grad_params_poseguider)
                 # if len(no_grad_params_referencenet) != 0:
                 #     print("ReferenceNet no grad params:", no_grad_params_referencenet)
-                
+
                 """ >>> gradient clipping >>> """
                 # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
                 torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
@@ -603,36 +632,65 @@ def main(
             if is_main_process and (
                 global_step == 1
                 or global_step % checkpointing_steps == 0
-                or (epoch % 5 == 0 and step == len(train_dataloader) - 1) # save every 5th epoch
+                or (
+                    epoch % 5 == 0 and step == len(train_dataloader) - 1
+                )  # save every 5th epoch
             ):
                 save_path = os.path.join(output_dir, f"checkpoints")
-                state_dict = {
-                    "epoch": epoch,
-                    "global_step": global_step,
-                    "unet_state_dict": unet.module.state_dict(),
-                    "poseguider_state_dict": poseguider.state_dict(),
-                    "referencenet_state_dict": referencenet.module.state_dict(),
-                }
+                if image_finetune:
+                    state_dict = {
+                        "epoch": epoch,
+                        "global_step": global_step,
+                        "unet_state_dict": unet.module.state_dict(),
+                        "poseguider_state_dict": poseguider.module.state_dict(),
+                        "referencenet_state_dict": referencenet.module.state_dict(),
+                    }
+                else:
+                    state_dict = {
+                        "epoch": epoch,
+                        "global_step": global_step,
+                        "unet_state_dict": unet.module.state_dict(),
+                    }
+
                 if step == len(train_dataloader) - 1:
                     torch.save(
                         state_dict,
                         os.path.join(save_path, f"checkpoint-epoch-{epoch+1}.ckpt"),
                     )
                     try:
-                        os.remove(os.path.join(save_path, f"checkpoint-epoch-{epoch}.ckpt"))
+                        os.remove(
+                            os.path.join(save_path, f"checkpoint-epoch-{epoch}.ckpt")
+                        )
                     except Exception as e:
-                        Warn(f'Warning: {e}')
+                        Warn(f"Warning: {e}")
                 else:
-                    torch.save(state_dict, os.path.join(save_path, f"checkpoint-global_step-{global_step}.ckpt"))
+                    torch.save(
+                        state_dict,
+                        os.path.join(
+                            save_path, f"checkpoint-global_step-{global_step}.ckpt"
+                        ),
+                    )
                 logging.info(f"Saved state to {save_path} (global_step: {global_step})")
                 save_first_stage_weights(save_path)
-                args = AD(dist=False, world_size=1, rank=0, config='configs/prompts/v6.yaml')
+                args = AD(
+                    dist=False,
+                    world_size=1,
+                    rank=0,
+                    config="configs/prompts/v2/v2.1.yaml",
+                )
                 animation_results = animation_stage_1(args)
                 images = animation_results.images
-                wandb.log({f'image_{ix}': wandb.Image(images[ix]) for ix in range(len(images))}, step=global_step)
+                wandb.log(
+                    {
+                        f"image_{ix}": wandb.Image(images[ix])
+                        for ix in range(len(images))
+                    },
+                    step=global_step,
+                )
                 import shutil
+
                 shutil.rmtree(animation_results.savedir)
-            
+
             # Wandb logging
             if is_main_process and (not is_debug) and use_wandb:
                 wandb.log({"train_loss": loss.item()}, step=global_step)
@@ -662,7 +720,6 @@ if __name__ == "__main__":
     config = OmegaConf.load(args.config)
 
     main(name=name, launcher=args.launcher, use_wandb=args.wandb, **config)
-    
 
     # CUDA_VISIBLE_DEVICES=1 torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_oneshot.yaml
     # CUDA_VISIBLE_DEVICES=2,3 torchrun --nnodes=1 --nproc_per_node=2 --master_port 28888 train.py --config configs/training/train_stage_1.yaml

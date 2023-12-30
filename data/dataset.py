@@ -251,7 +251,7 @@ class UBC_Fashion(Dataset):
         ref_img_pil = Image.fromarray(ref_img.asnumpy())
         ref_img_pil = resize(ref_img_pil, 224)
 
-        clip_ref_image = self.clip_image_processor(
+        clip_ref_image = 1 - self.clip_image_processor(
             images=ref_img_pil, return_tensors="pt", 
         ).pixel_values
 
