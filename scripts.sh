@@ -5,7 +5,7 @@ if true; then
     # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_UBC.yaml
     # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/v6.yaml --wandb
     # torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/v7.yaml --wandb
-    torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/v2/v2.1.yaml --wandb
+    torchrun --nnodes=1 --nproc_per_node=1 train.py --config configs/training/v2/v2.2.yaml --wandb
     # torchrun --rdzv_endpoint=localhost:29299 --master-port=29292 --nnodes=1 --nproc_per_node=1 train.py --config configs/training/train_stage_1_UBC_768_micro.yaml
 
     ## training stage 2

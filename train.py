@@ -603,9 +603,6 @@ def main(
                 scaler.update()
             else:
                 loss.backward()
-
-                # pdb.set_trace()
-
                 # no_grad_params_poseguider = get_parameters_without_gradients(poseguider)
                 # no_grad_params_referencenet = get_parameters_without_gradients(referencenet)
                 # if len(no_grad_params_poseguider) != 0:
@@ -676,16 +673,20 @@ def main(
                     dist=False,
                     world_size=1,
                     rank=0,
-                    config="configs/prompts/v2/v2.1.yaml",
+                    config="configs/prompts/v2/v2.2.yaml",
                 )
                 animation_results = animation_stage_1(args)
-                images = animation_results.images
+                images = [read(im, 1)[None] for im in animation_results.images]
+                images = (
+                    torch.Tensor(np.concatenate(images).astype(np.uint8))
+                    .permute(0, 3, 1, 2)
+                    .long()
+                )
+                from torchvision.utils import make_grid
+
+                all_images = make_grid(images, nrow=1)
                 wandb.log(
-                    {
-                        f"image_{ix}": wandb.Image(images[ix])
-                        for ix in range(len(images))
-                    },
-                    step=global_step,
+                    {f"images": wandb.Image(all_images / 255.0)}, step=global_step
                 )
                 import shutil
 
