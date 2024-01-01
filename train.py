@@ -673,7 +673,7 @@ def main(
                     dist=False,
                     world_size=1,
                     rank=0,
-                    config="configs/prompts/v2/v2.2.yaml",
+                    config="configs/prompts/v3/v3.1.yaml",
                 )
                 animation_results = animation_stage_1(args)
                 images = [read(im, 1)[None] for im in animation_results.images]
