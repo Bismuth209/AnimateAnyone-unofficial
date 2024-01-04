@@ -43,7 +43,7 @@ In the current version, we recommend training on 8 or 16 A100,H100 (80G) at 512 
 - [x] **Release Training Code.**
 - [x] **Release Inference Code.** 
 - [ ] **Release Unofficial Pre-trained Weights. <font color="red">(Note:Train on public datasets instead of large-scale private datasets, just for academic research.🤗)</font>**
-- [ ] **Release Gradio Demo.**
+- [x] **Release Gradio Demo.**
 
 ## Requirements
 
@@ -51,13 +51,11 @@ In the current version, we recommend training on 8 or 16 A100,H100 (80G) at 512 
 bash fast_env.sh
 ```
 
-## 🎬Gradio Demo (will publish with weights.)
+## 🎬Gradio Demo
 ```python
 python3 -m demo.gradio_animate
 ```
-
-If you only have a GPU with 24 GB of VRAM, I recommend inference at resolution 512 and below.
-
+For resolution 256, 11G VRAM is required, and for resolution 512, 20G VRAM is required.
 
 ## Training
 ### Original AnimateAnyone Architecture (It is difficult to control pose when training on a small dataset.)
@@ -73,7 +71,7 @@ torchrun --nnodes=8 --nproc_per_node=8 train.py --config configs/training/train_
 torchrun --nnodes=8 --nproc_per_node=8 train.py --config configs/training/train_stage_2.yaml
 ```
 
-### Our Method (A more dense pose control scheme, the number of parameters is still small.)
+### Our Method (A more dense pose control scheme, the number of parameters is still small.) (Highly recommended)
 ```python
 torchrun --nnodes=8 --nproc_per_node=8 train_hack.py --config configs/training/train_stage_1.yaml
 ```
