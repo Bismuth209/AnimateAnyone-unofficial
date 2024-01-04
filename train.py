@@ -626,11 +626,13 @@ def main(
             ### <<<< Training <<<< ###
 
             # Save checkpoint
+            SAVE_EVERY_N_EPOCHS = 5
             if is_main_process and (
                 global_step == 1
                 or global_step % checkpointing_steps == 0
                 or (
-                    epoch % 5 == 0 and step == len(train_dataloader) - 1
+                    epoch % SAVE_EVERY_N_EPOCHS == 0
+                    and step == len(train_dataloader) - 1
                 )  # save every 5th epoch
             ):
                 save_path = os.path.join(output_dir, f"checkpoints")
@@ -656,7 +658,10 @@ def main(
                     )
                     try:
                         os.remove(
-                            os.path.join(save_path, f"checkpoint-epoch-{epoch}.ckpt")
+                            os.path.join(
+                                save_path,
+                                f"checkpoint-epoch-{epoch-(SAVE_EVERY_N_EPOCHS-1)}.ckpt",
+                            )
                         )
                     except Exception as e:
                         Warn(f"Warning: {e}")
@@ -673,7 +678,7 @@ def main(
                     dist=False,
                     world_size=1,
                     rank=0,
-                    config="configs/prompts/v3/v3.1.yaml",
+                    config="configs/prompts/v3/v3.2.yaml",
                 )
                 animation_results = animation_stage_1(args)
                 images = [read(im, 1)[None] for im in animation_results.images]

@@ -158,8 +158,6 @@ def main(args):
         total=len(test_videos),
         disable=(args.rank != 0),
     ):
-        samples_per_video = []
-        samples_per_clip = []
         # manually set random seed for reproduction
         if random_seed != -1:
             torch.manual_seed(random_seed)
@@ -201,92 +199,100 @@ def main(args):
                 mode="edge",
             )
 
-        idx_control = len(control) // 2  # random.randint(0, control.shape[0] - 1)
-        control = control[idx_control]  # (256, 256, 3)
+        original_control = control.copy()
+        idx_controls = (
+            len(control) // 4,
+            len(control) // 2,
+            3 * len(control) // 4,
+        )  # random.randint(0, control.shape[0] - 1)
+        for idx_control in idx_controls:
+            samples_per_video = []
+            samples_per_clip = []
+            control = original_control[idx_control]  # (256, 256, 3)
 
-        generator = torch.Generator(device=torch.device("cuda:0"))
-        generator.manual_seed(torch.initial_seed())
-        sample = pipeline(
-            prompt,
-            negative_prompt=n_prompt,
-            num_inference_steps=config.steps,
-            guidance_scale=config.guidance_scale,
-            width=W,
-            height=H,
-            video_length=len(control),
-            init_latents=init_latents,
-            generator=generator,
-            num_actual_inference_steps=num_actual_inference_steps,
-            reference_control_writer=reference_control_writer,
-            reference_control_reader=reference_control_reader,
-            source_image=source_image,
-            referencenet=referencenet,
-            poseguider=poseguider,
-            clip_image_processor=clip_image_processor,
-            clip_image_encoder=clip_image_encoder,
-            pose_condition=control,
-            **dist_kwargs,
-        ).videos
+            generator = torch.Generator(device=torch.device("cuda:0"))
+            generator.manual_seed(torch.initial_seed())
+            sample = pipeline(
+                prompt,
+                negative_prompt=n_prompt,
+                num_inference_steps=config.steps,
+                guidance_scale=config.guidance_scale,
+                width=W,
+                height=H,
+                video_length=len(control),
+                init_latents=init_latents,
+                generator=generator,
+                num_actual_inference_steps=num_actual_inference_steps,
+                reference_control_writer=reference_control_writer,
+                reference_control_reader=reference_control_reader,
+                source_image=source_image,
+                referencenet=referencenet,
+                poseguider=poseguider,
+                clip_image_processor=clip_image_processor,
+                clip_image_encoder=clip_image_encoder,
+                pose_condition=control,
+                **dist_kwargs,
+            ).videos
 
-        # print(sample.shape) # torch.Size([1, 256, 256, 3])
+            # print(sample.shape) # torch.Size([1, 256, 256, 3])
 
-        modify_original_length = 1
+            modify_original_length = 1
 
-        if args.rank == 0:
-            source_images = np.array([source_image] * modify_original_length)
-            source_images = (
-                rearrange(torch.from_numpy(source_images), "t h w c -> 1 c t h w")
-                / 255.0
-            )
-            samples_per_video.append(source_images)
-
-            control = control / 255.0
-            # control = rearrange(control, "t h w c -> 1 c t h w")
-            control = rearrange(control, "h w c -> 1 c 1 h w")
-            control = torch.from_numpy(control)
-
-            # add
-            sample = rearrange(sample, "1 h w c -> 1 c 1 h w")
-
-            # pdb.set_trace()
-
-            samples_per_video.append(control[:, :, :modify_original_length])
-
-            samples_per_video.append(sample[:, :, :modify_original_length])
-
-            # print(samples_per_video.size())
-
-            samples_per_video = torch.cat(samples_per_video)
-
-            video_name = os.path.basename(test_video)[:-4]
-            source_name = os.path.basename(config.source_image[idx]).split(".")[0]
-            # save_videos_grid(samples_per_video[-1:], f"{savedir}/videos/{source_name}_{video_name}.mp4")
-            save_videos_grid(
-                samples_per_video,
-                f"{savedir}/videos/{source_name}_{video_name}/grid.mp4",
-                fps=1,
-            )
-
-            vr = decord_VideoReader(
-                f"{savedir}/videos/{source_name}_{video_name}/grid.mp4"
-            )
-            frame = vr[0].asnumpy()
-            output_path = f"{savedir}/videos/{source_name}_{video_name}/grid.png"
-            cv2.imwrite(
-                output_path,
-                cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
-            )
-            outputs.images.append(output_path)
-
-            if config.save_individual_videos:
-                save_videos_grid(
-                    samples_per_video[1:2],
-                    f"{savedir}/videos/{source_name}_{video_name}/ctrl.mp4",
+            if args.rank == 0:
+                source_images = np.array([source_image] * modify_original_length)
+                source_images = (
+                    rearrange(torch.from_numpy(source_images), "t h w c -> 1 c t h w")
+                    / 255.0
                 )
+                samples_per_video.append(source_images)
+
+                control = control / 255.0
+                # control = rearrange(control, "t h w c -> 1 c t h w")
+                control = rearrange(control, "h w c -> 1 c 1 h w")
+                control = torch.from_numpy(control)
+
+                # add
+                sample = rearrange(sample, "1 h w c -> 1 c 1 h w")
+
+                # pdb.set_trace()
+
+                samples_per_video.append(control[:, :, :modify_original_length])
+
+                samples_per_video.append(sample[:, :, :modify_original_length])
+
+                # print(samples_per_video.size())
+
+                samples_per_video = torch.cat(samples_per_video)
+
+                video_name = os.path.basename(test_video)[:-4]
+                source_name = os.path.basename(config.source_image[idx]).split(".")[0]
+                # save_videos_grid(samples_per_video[-1:], f"{savedir}/videos/{source_name}_{video_name}.mp4")
                 save_videos_grid(
-                    samples_per_video[0:1],
-                    f"{savedir}/videos/{source_name}_{video_name}/orig.mp4",
+                    samples_per_video,
+                    f"{savedir}/videos/{source_name}_{video_name}/grid_{idx_control}.mp4",
+                    fps=1,
                 )
+
+                vr = decord_VideoReader(
+                    f"{savedir}/videos/{source_name}_{video_name}/grid_{idx_control}.mp4"
+                )
+                frame = vr[0].asnumpy()
+                output_path = f"{savedir}/videos/{source_name}_{video_name}/grid_{idx_control}.png"
+                cv2.imwrite(
+                    output_path,
+                    cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
+                )
+                outputs.images.append(output_path)
+
+                if config.save_individual_videos:
+                    save_videos_grid(
+                        samples_per_video[1:2],
+                        f"{savedir}/videos/{source_name}_{video_name}/ctrl.mp4",
+                    )
+                    save_videos_grid(
+                        samples_per_video[0:1],
+                        f"{savedir}/videos/{source_name}_{video_name}/orig.mp4",
+                    )
 
         if args.dist:
             dist.barrier()

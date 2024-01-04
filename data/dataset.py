@@ -281,7 +281,6 @@ class UBC_Fashion(Dataset):
         )
         pixel_values_ref_img = pixel_values_ref_img / 255.0
         del video_reader
-
         # pixel_values: train objective
         # pixel_values_pose: corresponding pose
         # clip_ref_image: processed reference clip image
