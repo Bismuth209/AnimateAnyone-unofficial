@@ -2,6 +2,8 @@
 
 If you find this repository helpful, please consider giving us a star⭐!
 
+We only train on small-scale datasets (such as TikTok, UBC), and it is difficult to achieve official results under the condition of insufficient data scale and quality. Because of the consideration of time and cost, we do not intend to collect and filter a large number of high-quality data. If someone has a robust model trained on a large amount of high-quality data and is willing to share it, make a pull request.
+
 ## Overview
 This repository contains an simple and unofficial implementation of [Animate Anyone](https://humanaigc.github.io/animate-anyone/). This project is built upon [magic-animate](https://github.com/magic-research/magic-animate/tree/main) and [AnimateDiff](https://github.com/guoyww/AnimateDiff). This implementation is first developed by [Qin Guo](https://github.com/guoqincode) and then assisted by [Zhenzhi Wang](https://zhenzhiwang.github.io/).
 
@@ -42,7 +44,7 @@ In the current version, we recommend training on 8 or 16 A100,H100 (80G) at 512 
 ## ToDo
 - [x] **Release Training Code.**
 - [x] **Release Inference Code.** 
-- [ ] **Release Unofficial Pre-trained Weights. <font color="red">(Note:Train on public datasets instead of large-scale private datasets, just for academic research.🤗)</font>**
+- [ ] **Release Unofficial Pre-trained Weights.**
 - [x] **Release Gradio Demo.**
 
 ## Requirements
@@ -55,7 +57,7 @@ bash fast_env.sh
 ```python
 python3 -m demo.gradio_animate
 ```
-For resolution 256, 11G VRAM is required, and for resolution 512, 20G VRAM is required.
+For a 13-second pose video, processing at 256 resolution requires 11G VRAM, and at 512 resolution, it requires 23.5G VRAM.
 
 ## Training
 ### Original AnimateAnyone Architecture (It is difficult to control pose when training on a small dataset.)
