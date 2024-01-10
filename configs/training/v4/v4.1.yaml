@@ -1,12 +1,12 @@
 image_finetune: true
 
 output_dir: "outputs/"
-folder_name: "v3.2"
+folder_name: "v4.1"
 pretrained_model_path: "./checkpoints/stable-diffusion-v1-5"
 clip_model_path: "./checkpoints/clip-vit-base-patch32"
-poseguider_checkpoint_path: "checkpoints/v3.1/poseguider_stage_1.ckpt"
-referencenet_checkpoint_path: "checkpoints/v3.1/referencenet_stage_1.ckpt"
-pretrained_unet_path: "checkpoints/v3.1/unet_stage_1.ckpt"
+poseguider_checkpoint_path: ""
+referencenet_checkpoint_path: ""
+pretrained_unet_path: ""
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
@@ -56,8 +56,7 @@ validation_data:
   guidance_scale: 8.
 
 trainable_modules:
-  # - "motion_modules."
-  - "."
+  - "motion_modules."
 
 unet_checkpoint_path: ""
 
@@ -70,6 +69,7 @@ max_train_epoch:      -1
 max_train_steps:      200000
 checkpointing_epochs: -1
 checkpointing_steps:  5000
+save_every_n_epochs: 5
 gradient_accumulation_steps: 1
 
 
@@ -77,12 +77,14 @@ validation_steps:       500000
 validation_steps_tuple: [2, 50]
 
 global_seed: 42
-# mixed_precision_training: true
-mixed_precision_training: False
+mixed_precision_training: true
 # enable_xformers_memory_efficient_attention: True
 enable_xformers_memory_efficient_attention: False
 
 
 is_debug: False
 
-# Steps:  14%|█████         | 28693/200000 [46:35:23<256:07:14,  5.38s/it, lr=1e-5, step_loss=0.0451]
+inference:
+  reference_image_path: '/home/ubuntu/data/ubc_fashion/source_image/A1-Lv00GAzS.png'
+  motion_sequence: '/home/ubuntu/data/ubc_fashion/driving/dwpose/A1-Lv00GAzS.mp4'
+  config: "configs/prompts/v4/w4.1.yaml"

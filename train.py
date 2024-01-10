@@ -1,5 +1,7 @@
+import shutil
 from torch_snippets import *
 from pipelines.animation_stage_1 import main as animation_stage_1
+from demo.animate_cli import animate_images
 import os
 import math
 import wandb
@@ -156,6 +158,8 @@ def main(
     cfg_random_null_text_ratio: float = 0.1,
     unet_checkpoint_path: str = "",
     unet_additional_kwargs: Dict = {},
+    specific_motion_unet_model=None,
+    pretrained_unet_path=None,
     ema_decay: float = 0.9999,
     noise_scheduler_kwargs=None,
     max_train_epoch: int = -1,
@@ -183,16 +187,24 @@ def main(
     global_seed: int = 42,
     is_debug: bool = False,
     folder_name=None,
-    pretrained_unet_path=None,
+    return_models_only=False,
+    save_every_n_epochs=5,
+    inference_config=None
 ):
     check_min_version("0.21.4")
 
     # Initialize distributed training
-    local_rank = init_dist(launcher=launcher, port=28888)
-    global_rank = dist.get_rank()
-    num_processes = dist.get_world_size()
-    # num_processes   = 0
-    is_main_process = global_rank == 0
+    if not return_models_only:
+        local_rank = init_dist(launcher=launcher, port=28888)
+        global_rank = dist.get_rank()
+        num_processes = dist.get_world_size()
+        # num_processes   = 0
+        is_main_process = global_rank == 0
+    else:
+        is_main_process = True
+        global_rank = 0
+        num_processes = 1
+        local_rank = 0
 
     seed = global_seed + global_rank
     torch.manual_seed(seed)
@@ -262,16 +274,19 @@ def main(
         Warn(f"Error while loading poseguider and referencnet weights...\n{e}")
 
     if not image_finetune:
-        unet = UNet3DConditionModel.from_pretrained_2d(
-            pretrained_model_path,
-            subfolder="unet",
-            unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs),
-        )
-        # unet = UNet3DConditionModel.from_pretrained_2d(
-        #     'checkpoints/train_stage_2_UBC_768-2023-12-26T04-55-42',
-        #     unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs),
-        #     specific_model='unet_stage_2.ckpt'
-        # )
+        if pretrained_unet_path != "" and P(pretrained_unet_path).exists() and (P(pretrained_unet_path)/specific_motion_unet_model).exists:
+            unet = UNet3DConditionModel.from_pretrained_2d(
+                pretrained_unet_path,
+                unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs),
+                specific_model=specific_motion_unet_model
+            )
+        else:
+            unet = UNet3DConditionModel.from_pretrained_2d(
+                pretrained_model_path,
+                subfolder="unet",
+                unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs),
+            )
+        
     else:
         if pretrained_unet_path != "" and P(pretrained_unet_path).exists():
             unet_config = UNet2DConditionModel.load_config(
@@ -392,6 +407,19 @@ def main(
     # train_dataset = TikTok(**train_data, is_image=image_finetune)
     train_dataset = UBC_Fashion(**train_data, is_image=image_finetune)
 
+    if return_models_only:
+        return AD(
+            clip_image_encoder,
+            poseguider,
+            referencenet,
+            unet,
+            optimizer,
+            reference_control_reader,
+            reference_control_reader,
+            vae,
+            train_dataset,
+        )
+
     distributed_sampler = DistributedSampler(
         train_dataset,
         num_replicas=num_processes,
@@ -439,8 +467,10 @@ def main(
 
     # DDP warpper
     unet.to(local_rank)
-    unet = DDP(unet, device_ids=[local_rank], output_device=local_rank)
-
+    try:
+        unet = DDP(unet, device_ids=[local_rank], output_device=local_rank)
+    except Exception as e:
+        Warn(f"Error {e}\nwhile trying to DDP(unet)")
     if image_finetune:
         poseguider = DDP(poseguider, device_ids=[local_rank], output_device=local_rank)
         referencenet = DDP(
@@ -626,12 +656,12 @@ def main(
             ### <<<< Training <<<< ###
 
             # Save checkpoint
-            SAVE_EVERY_N_EPOCHS = 5
             if is_main_process and (
                 global_step == 1
                 or global_step % checkpointing_steps == 0
                 or (
-                    epoch % SAVE_EVERY_N_EPOCHS == 0
+                    save_every_n_epochs
+                    and epoch % save_every_n_epochs == 0
                     and step == len(train_dataloader) - 1
                 )  # save every 5th epoch
             ):
@@ -640,9 +670,15 @@ def main(
                     state_dict = {
                         "epoch": epoch,
                         "global_step": global_step,
-                        "unet_state_dict": unet.module.state_dict(),
-                        "poseguider_state_dict": poseguider.module.state_dict(),
-                        "referencenet_state_dict": referencenet.module.state_dict(),
+                        "unet_state_dict": unet.module.state_dict()
+                        if hasattr(unet, "module")
+                        else unet.state_dict(),
+                        "poseguider_state_dict": poseguider.module.state_dict()
+                        if hasattr(poseguider, "module")
+                        else poseguider.state_dict(),
+                        "referencenet_state_dict": referencenet.module.state_dict()
+                        if hasattr(referencenet, "module")
+                        else referencenet.state_dict(),
                     }
                 else:
                     state_dict = {
@@ -652,50 +688,65 @@ def main(
                     }
 
                 if step == len(train_dataloader) - 1:
-                    torch.save(
-                        state_dict,
-                        os.path.join(save_path, f"checkpoint-epoch-{epoch+1}.ckpt"),
-                    )
                     try:
                         os.remove(
                             os.path.join(
                                 save_path,
-                                f"checkpoint-epoch-{epoch-(SAVE_EVERY_N_EPOCHS-1)}.ckpt",
+                                f"checkpoint-epoch-{epoch-(save_every_n_epochs-1)}.ckpt",
                             )
                         )
                     except Exception as e:
                         Warn(f"Warning: {e}")
-                else:
-                    torch.save(
-                        state_dict,
-                        os.path.join(
-                            save_path, f"checkpoint-global_step-{global_step}.ckpt"
-                        ),
+                    save_to = os.path.join(
+                        save_path, f"checkpoint-epoch-{epoch+1}.ckpt"
                     )
-                logging.info(f"Saved state to {save_path} (global_step: {global_step})")
-                save_first_stage_weights(save_path)
-                args = AD(
-                    dist=False,
-                    world_size=1,
-                    rank=0,
-                    config="configs/prompts/v3/v3.2.yaml",
-                )
-                animation_results = animation_stage_1(args)
-                images = [read(im, 1)[None] for im in animation_results.images]
-                images = (
-                    torch.Tensor(np.concatenate(images).astype(np.uint8))
-                    .permute(0, 3, 1, 2)
-                    .long()
-                )
-                from torchvision.utils import make_grid
+                    torch.save(state_dict, save_to)
+                else:
+                    save_to = os.path.join(
+                        save_path, f"checkpoint-global_step-{global_step}.ckpt"
+                    )
+                    torch.save(state_dict, save_to)
+                logging.info(f"Saved state to {save_to} (global_step: {global_step})")
+                if image_finetune:
+                    save_first_stage_weights(save_path)
+                    args = AD(
+                        dist=False,
+                        world_size=1,
+                        rank=0,
+                        config="configs/prompts/v4/v4.1.yaml",
+                    )
+                    animation_results = animation_stage_1(args)
+                    images = [read(im, 1)[None] for im in animation_results.images]
+                    images = (
+                        torch.Tensor(np.concatenate(images).astype(np.uint8))
+                        .permute(0, 3, 1, 2)
+                        .long()
+                    )
+                    from torchvision.utils import make_grid
 
-                all_images = make_grid(images, nrow=1)
-                wandb.log(
-                    {f"images": wandb.Image(all_images / 255.0)}, step=global_step
-                )
-                import shutil
+                    all_images = make_grid(images, nrow=1)
+                    wandb.log(
+                        {f"images": wandb.Image(all_images / 255.0)}, step=global_step
+                    )
 
-                shutil.rmtree(animation_results.savedir)
+                    shutil.rmtree(animation_results.savedir)
+                else:
+                    args = AD(
+                        reference_image_path=inference_config.reference_image_path,
+                        motion_sequence=inference_config.motion_sequence,
+                        size=768,
+                        config=inference_config.config,
+                        seed=10,
+                        steps=25,
+                        guidance_scale=7.5,
+                        pretrained_motion_unet_path=inference_config.pretrained_motion_unet_path,
+                        specific_motion_unet_model=inference_config.specific_motion_unet_model
+                    )
+                    animation_video_path = animate_images(args)
+                    wandb.log(
+                        {f"video": wandb.Video(animation_video_path)}, step=global_step
+                    )
+                    os.remove(animation_video_path)
 
             # Wandb logging
             if is_main_process and (not is_debug) and use_wandb:

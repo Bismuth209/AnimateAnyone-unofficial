@@ -1,23 +1,13 @@
-image_finetune: true
+image_finetune: false
 
 output_dir: "outputs/"
-folder_name: "v3.2"
+folder_name: "w4.1"
 pretrained_model_path: "./checkpoints/stable-diffusion-v1-5"
 clip_model_path: "./checkpoints/clip-vit-base-patch32"
-poseguider_checkpoint_path: "checkpoints/v3.1/poseguider_stage_1.ckpt"
-referencenet_checkpoint_path: "checkpoints/v3.1/referencenet_stage_1.ckpt"
-pretrained_unet_path: "checkpoints/v3.1/unet_stage_1.ckpt"
-
-noise_scheduler_kwargs:
-  num_train_timesteps: 1000
-  beta_start:          0.00085
-  beta_end:            0.012
-  # beta_schedule:       "scaled_linear"
-  beta_schedule:       "linear"
-  steps_offset:        1
-  clip_sample:         false
-
-description: "### Train Info: train stage 1: image pretrain ###"
+poseguider_checkpoint_path: "./checkpoints/v4.1/poseguider_stage_1.ckpt"
+referencenet_checkpoint_path: "./checkpoints/v4.1/referencenet_stage_1.ckpt"
+pretrained_unet_path: "./checkpoints/v4.1/unet_stage_1.ckpt"
+unet_checkpoint_path: ""
 
 unet_additional_kwargs:
   use_motion_module              : true
@@ -36,15 +26,23 @@ unet_additional_kwargs:
     zero_initialize                    : true
 
 
+noise_scheduler_kwargs:
+  num_train_timesteps: 1000
+  beta_start:          0.00085
+  beta_end:            0.012
+  beta_schedule:       "scaled_linear"
+  steps_offset:        1
+  clip_sample:         false
+
+description: "train stage 2: video motion train"
+
 train_data:
-  # csv_path:     "./data/UBC_train_info_test.csv"
   csv_path:     "./data/UBC_train_info.csv"
   video_folder: "/home/ubuntu/data/ubc_fashion/"
   sample_size:  768 # for 40G 256
   sample_stride: 4
-  sample_n_frames: 16
+  sample_n_frames: 8
   clip_model_path: "./checkpoints/clip-vit-base-patch32"
-
 
 validation_data:
   prompts:
@@ -52,37 +50,28 @@ validation_data:
     - "A drone view of celebration with Christma tree and fireworks, starry sky - background."
     - "Robot dancing in times square."
     - "Pacific coast, carmel by the sea ocean and waves."
-  num_inference_steps: 
+  num_inference_steps: 25
   guidance_scale: 8.
 
 trainable_modules:
-  # - "motion_modules."
-  - "."
-
-unet_checkpoint_path: ""
+  - "motion_modules."
 
 fusion_blocks: "full"
-
 learning_rate:    1.e-5
-train_batch_size: 4
+train_batch_size: 1
 
 max_train_epoch:      -1
-max_train_steps:      200000
+max_train_steps:      30000
 checkpointing_epochs: -1
-checkpointing_steps:  5000
-gradient_accumulation_steps: 1
+checkpointing_steps:  600
+gradient_accumulation_steps: 16
 
 
-validation_steps:       500000
+validation_steps:       5000
 validation_steps_tuple: [2, 50]
 
 global_seed: 42
-# mixed_precision_training: true
-mixed_precision_training: False
-# enable_xformers_memory_efficient_attention: True
-enable_xformers_memory_efficient_attention: False
-
+mixed_precision_training: true
+enable_xformers_memory_efficient_attention: false
 
 is_debug: False
-
-# Steps:  14%|█████         | 28693/200000 [46:35:23<256:07:14,  5.38s/it, lr=1e-5, step_loss=0.0451]

@@ -34,7 +34,20 @@ import pdb
 
 
 class AnimateAnyone():
-    def __init__(self, config="configs/prompts/animation_stage_2_hack.yaml") -> None:
+    def __init__(
+        self, 
+        config="configs/prompts/animation_stage_2_hack.yaml", 
+        pretrained_motion_unet_path=None, 
+        specific_motion_unet_model=None,
+        unet=None,
+        tokenizer=None,
+        text_encoder=None,
+        vae=None,
+        poseguider=None,
+        clip_image_encoder=None,
+        clip_image_processor=None,
+        referencenet=None
+    ) -> None:
         print("Initializing AnimateAnyone Pipeline...")
         *_, func_args = inspect.getargvalues(inspect.currentframe())
         func_args = dict(func_args)
@@ -44,21 +57,28 @@ class AnimateAnyone():
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         ### >>> create animation pipeline >>> ###
-        tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_clip_path)
-        text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path)  
-        unet = UNet3DConditionModel.from_pretrained_2d(config.pretrained_motion_unet_path, subfolder=None, unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs), specific_model=config.specific_motion_unet_model)
-        vae = AutoencoderKL.from_pretrained(config.pretrained_model_path, subfolder="vae")
+        tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_clip_path) if tokenizer is None else tokenizer
+        text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path) if text_encoder is None else text_encoder
+        unet = UNet3DConditionModel.from_pretrained_2d(
+            config.pretrained_motion_unet_path if pretrained_motion_unet_path is None else pretrained_motion_unet_path, 
+            subfolder=None, unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs), 
+            specific_model=config.specific_motion_unet_model if specific_motion_unet_model is None else specific_motion_unet_model 
+        ) if unet is None else unet
+        vae = AutoencoderKL.from_pretrained(config.pretrained_model_path, subfolder="vae") if vae is None else vae
         
-        self.poseguider = PoseGuider.from_pretrained(pretrained_model_path=config.pretrained_poseguider_path)
+        self.poseguider = PoseGuider.from_pretrained(pretrained_model_path=config.pretrained_poseguider_path) if poseguider is None else poseguider
         self.poseguider.eval()
-        self.clip_image_encoder = ReferenceEncoder(model_path=config.pretrained_clip_path)
-        self.clip_image_processor = CLIPProcessor.from_pretrained(config.pretrained_clip_path,local_files_only=True)
-        self.referencenet = ReferenceNet.load_referencenet(pretrained_model_path=config.pretrained_referencenet_path)
+        self.clip_image_encoder = ReferenceEncoder(model_path=config.pretrained_clip_path) if clip_image_encoder is None else clip_image_encoder
+        self.clip_image_processor = CLIPProcessor.from_pretrained(config.pretrained_clip_path,local_files_only=True) if clip_image_processor is None else clip_image_processor
+        self.referencenet = ReferenceNet.load_referencenet(pretrained_model_path=config.pretrained_referencenet_path) if referencenet is None else referencenet
         self.reference_control_writer = None
         self.reference_control_reader = None
 
-        unet.enable_xformers_memory_efficient_attention()
-        self.referencenet.enable_xformers_memory_efficient_attention()
+        try:
+            unet.enable_xformers_memory_efficient_attention()
+            self.referencenet.enable_xformers_memory_efficient_attention()
+        except:
+            print("Unable to enable xformers")
 
         vae.to(torch.float16)
         unet.to(torch.float16)

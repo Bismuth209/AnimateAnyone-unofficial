@@ -113,6 +113,16 @@ def main(args):
     referencenet.to(torch.float32).to(device)
     poseguider.to(torch.float32).to(device)
     clip_image_encoder.to(torch.float32).to(device)
+    if hasattr(args, "return_models_only") and args.return_models_only:
+        return AD(
+            clip_image_encoder,
+            poseguider,
+            referencenet,
+            unet,
+            reference_control_reader,
+            reference_control_reader,
+            vae,
+        )
 
     pipeline = AnimationAnyonePipeline(
         vae=vae,

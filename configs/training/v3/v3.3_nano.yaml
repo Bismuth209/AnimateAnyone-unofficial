@@ -1,12 +1,12 @@
 image_finetune: true
 
 output_dir: "outputs/"
-folder_name: "v3.2"
+folder_name: "v3.3_nano"
 pretrained_model_path: "./checkpoints/stable-diffusion-v1-5"
 clip_model_path: "./checkpoints/clip-vit-base-patch32"
-poseguider_checkpoint_path: "checkpoints/v3.1/poseguider_stage_1.ckpt"
-referencenet_checkpoint_path: "checkpoints/v3.1/referencenet_stage_1.ckpt"
-pretrained_unet_path: "checkpoints/v3.1/unet_stage_1.ckpt"
+poseguider_checkpoint_path: "checkpoints/v3.2/poseguider_stage_1.ckpt"
+referencenet_checkpoint_path: "checkpoints/v3.2/referencenet_stage_1.ckpt"
+pretrained_unet_path: ""
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
@@ -44,6 +44,7 @@ train_data:
   sample_stride: 4
   sample_n_frames: 16
   clip_model_path: "./checkpoints/clip-vit-base-patch32"
+  dataset_size: 4
 
 
 validation_data:
@@ -69,7 +70,7 @@ train_batch_size: 4
 max_train_epoch:      -1
 max_train_steps:      200000
 checkpointing_epochs: -1
-checkpointing_steps:  5000
+checkpointing_steps:  150
 gradient_accumulation_steps: 1
 
 
@@ -85,4 +86,4 @@ enable_xformers_memory_efficient_attention: False
 
 is_debug: False
 
-# Steps:  14%|█████         | 28693/200000 [46:35:23<256:07:14,  5.38s/it, lr=1e-5, step_loss=0.0451]
+# Steps:   5%|█    | 10002/200000 [15:43:15<1939:45:32, 36.75s/it, lr=1e-5, step_loss=0.0562]

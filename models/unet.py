@@ -514,16 +514,9 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         if not os.path.isfile(model_file):
             raise RuntimeError(f"{model_file} does not exist")
         
-        state_dict = torch.load(model_file, map_location="cpu")
-
-        m, u = model.load_state_dict(state_dict, strict=False)
-        print(f"### missing keys: {len(m)}; \n### unexpected keys: {len(u)} ###")
-        if len(m) !=0 or len(u) !=0:
-            print(f"### missing keys:\n{m}\n### unexpected keys:\n{u}\n ###")
-        
+        load_unet_with_motion_module_state_dict(model, model_file)       
         params = [p.numel() if "temporal" in n else 0 for n, p in model.named_parameters()]
         print(f"### Temporal Module Parameters: {sum(params) / 1e6} M ###")
-        
         return model
 
 
@@ -536,6 +529,11 @@ def load_unet_with_motion_module_state_dict(unet, motion_module_ckpt_path):
     motion_module_state_dict = (
         motion_module_state_dict["state_dict"]
         if "state_dict" in motion_module_state_dict
+        else motion_module_state_dict
+    )
+    motion_module_state_dict = (
+        motion_module_state_dict["unet_state_dict"]
+        if "unet_state_dict" in motion_module_state_dict
         else motion_module_state_dict
     )
     try:
@@ -565,4 +563,5 @@ def load_unet_with_motion_module_state_dict(unet, motion_module_ckpt_path):
         missing, unexpected = unet.load_state_dict(_tmp_, strict=False)
         assert len(unexpected) == 0
         del _tmp_
+    print(f"Loaded weights for unet from motion module: {motion_module_ckpt_path}!")
     del motion_module_state_dict

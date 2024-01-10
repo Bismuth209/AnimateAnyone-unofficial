@@ -33,20 +33,13 @@ def copy_video(input_file, target_folder):
     print(f"File copied to {target_file}")
 
 
-output_folder = "inputs/applications/source_image"
-copy_target_folder = "inputs/applications/driving/dwpose" 
+output_folder = "/home/ubuntu/data/ubc_fashion//source_image"
+copy_target_folder = "/home/ubuntu/data/ubc_fashion/driving/dwpose" 
 
+video_name = "A1-Lv00GAzS.mp4"
 
-video_name = "91-9wEBqAlS.mp4"
-video_name = "91C+rpudhdS.mp4"
-video_name = "A18fOhsmJWS.mp4"
-video_name = "A17AGFxllwS.mp4"
-video_name = "A11UTfKe+tS.mp4"
-
-input_video_1 = "UBC_dataset/train/" + video_name
-input_video_2 = "UBC_dataset/train_dwpose/" + video_name
-
-
+input_video_1 = "/home/ubuntu/data/ubc_fashion/test/" + video_name
+input_video_2 = "/home/ubuntu/data/ubc_fashion/test_dwpose/" + video_name
 
 copy_video(input_video_2, copy_target_folder)
 extract_first_frame(input_video_1, output_folder)

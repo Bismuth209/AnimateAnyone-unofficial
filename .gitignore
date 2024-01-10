@@ -4,6 +4,7 @@ outputs.bak
 wandb/
 debugs/
 outputs/
+weights/
 samples/
 __pycache__/
 ossutil_output/

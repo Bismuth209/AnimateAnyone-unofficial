@@ -179,11 +179,13 @@ class UBC_Fashion(Dataset):
         is_image=False,
         clip_model_path="openai/clip-vit-base-patch32",
         is_train=True,
+        dataset_size=None,
+        **kwargs,
     ):
         zero_rank_print(f"loading annotations from {csv_path} ...")
         with open(csv_path, "r") as csvfile:
             self.dataset = list(csv.DictReader(csvfile))
-        self.length = len(self.dataset)
+        self.length = len(self.dataset) if dataset_size is None else int(dataset_size)
         zero_rank_print(f"video nums: {self.length}")
 
         self.video_folder = video_folder
